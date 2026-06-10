@@ -1,0 +1,250 @@
+# ============================================================
+# TRADING BOT — MASTER CONFIG
+# แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
+# ============================================================
+
+# ── 1. MT5 & BROKER ─────────────────────────────────────────
+mt5:
+  # path ของ MT5 terminal บน Windows VPS
+  terminal_path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+
+  # timeout รอ MT5 response (วินาที)
+  timeout_sec: 30
+
+  # reconnect กี่ครั้งถ้าหลุด
+  max_reconnect_attempts: 5
+
+  # รอกี่วินาทีระหว่าง reconnect attempt
+  reconnect_delay_sec: 10
+
+
+# ── 2. SYMBOLS ───────────────────────────────────────────────
+symbols:
+  # รายการ symbol ที่บอทจะเทรด
+  # เพิ่ม/ลบที่นี่ — แล้วต้อง retrain โมเดลใหม่
+  active:
+    - "XAUUSD"    # ทองคำ (main)
+    - "EURUSD"    # EUR/USD
+    - "GBPUSD"    # GBP/USD
+  # - "USDJPY"   ← uncomment เมื่อพร้อม
+
+  # timeframe หลักที่บอทวิ่ง
+  primary_timeframe: "M15"
+
+  # timeframe เสริมสำหรับ multi-timeframe analysis
+  htf_timeframes:
+    - "H1"
+    - "H4"
+
+
+# ── 3. RISK MANAGEMENT ──────────────────────────────────────
+risk:
+  # % ของ balance ที่เสี่ยงต่อ 1 trade
+  # 0.01 = 1% | แนะนำ 0.5-1% สำหรับมือใหม่
+  risk_per_trade: 0.01
+
+  # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้
+  # 0.05 = 5% ของ balance วันนั้น
+  max_daily_loss_pct: 0.05
+
+  # จำนวน position สูงสุดที่เปิดพร้อมกันได้
+  max_open_trades: 3
+
+  # ไม่เทรดถ้า spread กว้างกว่านี้ (หน่วย: points)
+  # XAUUSD: 30 points ≈ 3 pips | Forex majors: 15 points
+  max_spread_points:
+    XAUUSD: 30
+    EURUSD: 15
+    GBPUSD: 20
+    default: 25
+
+  # ขนาด lot ต่ำสุด/สูงสุด (override broker limit)
+  min_lot: 0.01
+  max_lot: 0.50
+
+
+# ── 4. ORDER SETTINGS ───────────────────────────────────────
+order:
+  # ระยะ Stop Loss (หน่วย: points)
+  # XAUUSD: 150 points = 15 pips (ประมาณ $1.50 ต่อ 0.01 lot)
+  sl_points:
+    XAUUSD: 150
+    EURUSD: 120
+    GBPUSD: 130
+    default: 130
+
+  # Take Profit = SL × tp_ratio
+  # 2.0 = RR 1:2 | แนะนำไม่ต่ำกว่า 1.5
+  tp_ratio: 2.0
+
+  # Trailing Stop — เปิด/ปิด
+  use_trailing_stop: true
+
+  # เริ่ม trailing เมื่อกำไรถึง % นี้
+  trailing_start_pct: 0.008   # 0.8%
+
+  # trailing distance
+  trailing_distance_pct: 0.005  # 0.5%
+
+  # slippage ที่ยอมรับได้ (points)
+  max_slippage: 10
+
+  # magic number — ระบุ order ว่ามาจากบอทนี้
+  # ห้ามซ้ำกับบอทอื่น
+  magic_number: 20250101
+
+  # comment ใน order (เห็นใน MT5 history)
+  order_comment: "aurum_bot_v1"
+
+
+# ── 5. SIGNAL & MODEL ───────────────────────────────────────
+signal:
+  # โมเดลที่ใช้ตอนนี้
+  # ตัวเลือก: "rule_based" | "xgb" | "lgbm" | "lstm" | "ensemble"
+  active_model: "ensemble"
+
+  # confidence ขั้นต่ำที่จะส่ง order
+  # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
+  # แนะนำ: 0.60–0.70
+  min_confidence: 0.62
+
+  # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
+  lookback_bars: 200
+
+  # ป้องกันเทรดซ้ำ symbol เดิมภายใน n นาที
+  cooldown_min: 30
+
+
+# ── 6. TRADING SESSION ──────────────────────────────────────
+session:
+  # เทรดเฉพาะช่วงนี้ (UTC)
+  # London: 07:00-16:00 UTC | New York: 12:00-21:00 UTC
+  # Overlap (ดีที่สุด): 12:00-16:00 UTC
+  allowed_hours_utc:
+    start: 7
+    end: 20
+
+  # ไม่เทรดวัน
+  skip_weekends: true
+
+  # ไม่เทรด 30 นาทีก่อน/หลัง ข่าวสำคัญ (ถ้าเปิดใช้ news filter)
+  news_blackout_min: 30
+
+  # วันหยุดตลาด (ปี-เดือน-วัน) — ไม่เทรด
+  market_holidays:
+    - "2025-12-25"   # Christmas
+    - "2026-01-01"   # New Year
+
+
+# ── 7. DATA COLLECTION ──────────────────────────────────────
+data:
+  # จำนวน bar ย้อนหลังที่ดึงมา train
+  history_bars:
+    M15: 10000    # ≈ 2 ปี
+    H1:  5000
+    H4:  2000
+
+  # Macro data sources (ผ่าน yfinance)
+  macro_symbols:
+    DXY:    "DX-Y.NYB"    # Dollar Index
+    US10Y:  "^TNX"        # US 10-Year Bond Yield
+    VIX:    "^VIX"        # Volatility Index
+    SILVER: "SI=F"        # Silver Futures
+    OIL:    "CL=F"        # Crude Oil (optional)
+
+  # อัพเดต data ทุกกี่ชั่วโมง (Task Scheduler จะเป็นคนรัน)
+  update_interval_hours: 24
+
+
+# ── 8. MODEL TRAINING ───────────────────────────────────────
+training:
+  # retrain โมเดลอัตโนมัติทุกกี่วัน
+  retrain_every_days: 30
+
+  # สัดส่วน train/validation/test
+  train_pct: 0.70
+  val_pct:   0.15
+  test_pct:  0.15
+
+  #ปรับเวลและ loth
+  label_method: "triple_barrier"   # แนะนำสำหรับ production
+  forward_bars: 4                  # 4 × M15 = 1 ชั่วโมง
+  min_return_pct: 0.0015           # 0.15% (ปรับตาม symbol)
+
+  # จำนวน fold ใน walk-forward validation
+  wf_splits: 5
+
+  # gap ระหว่าง train และ test (bars) — ป้องกัน data leak
+  wf_gap_bars: 96   # 1 วัน สำหรับ M15
+
+  # XGBoost default params (Optuna จะ override ถ้ารัน hyperopt)
+  xgb_params:
+    n_estimators:     500
+    learning_rate:    0.03
+    max_depth:        6
+    min_child_weight: 10
+    subsample:        0.8
+    colsample_bytree: 0.8
+
+  # LightGBM default params
+  lgbm_params:
+    num_leaves:       63
+    learning_rate:    0.03
+    min_data_in_leaf: 50
+    feature_fraction: 0.8
+    num_boost_round:  1000
+
+  # Target label — กี่ bar ข้างหน้า
+  forward_bars: 4
+
+  # return ขั้นต่ำที่จะ label เป็น BUY/SELL
+  # น้อยกว่านี้ = HOLD
+  min_return_pct: 0.0015   # 0.15%
+
+
+# ── 9. PATHS ────────────────────────────────────────────────
+paths:
+  data_raw:       "data/raw"
+  data_processed: "data/processed"
+  models_saved:   "models/saved"
+  logs:           "logs"
+  db:             "db/trades.db"
+  reports:        "reports"
+  flags:          "flags"
+
+
+# ── 10. DASHBOARD ───────────────────────────────────────────
+dashboard:
+  # port ของ Streamlit
+  port: 8501
+
+  # รีเฟรชทุกกี่วินาที
+  refresh_sec: 30
+
+  # แสดง trade ล่าสุดกี่รายการ
+  recent_trades_count: 50
+
+
+# ── 11. NOTIFICATIONS ───────────────────────────────────────
+notifications:
+  # เปิด/ปิด Telegram
+  telegram_enabled: true
+
+  # แจ้งเตือนเมื่อ
+  notify_on:
+    order_open:    true
+    order_close:   true
+    order_failed:  true
+    daily_summary: true    # สรุปทุกเที่ยงคืน UTC
+    bot_restart:   true
+    daily_loss_hit: true   # แจ้งเมื่อ daily loss limit เตะ
+
+  # เวลาส่ง daily summary (UTC)
+  daily_summary_hour: 21
+
+
+# ── 12. LOGGING ─────────────────────────────────────────────
+logging:
+  level: "INFO"          # DEBUG | INFO | WARNING | ERROR
+  max_file_size_mb: 10
+  backup_count: 5        # เก็บ log ย้อนหลัง 5 ไฟล์
