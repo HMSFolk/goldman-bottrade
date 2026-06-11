@@ -1,6 +1,13 @@
 # ============================================================
-# TRADING BOT — LOGGING CONFIG
-# โหลดด้วย: logging.config.dictConfig(yaml.safe_load(f))
+# TRADING BOT — LOGGING CONFIG  (Production-ready)
+# โหลดด้วย setup_logging() ใน bot/main.py
+#
+# ⚠️  ต้องสร้าง directory ก่อนโหลดไฟล์นี้:
+#     logs/  และ  logs/daily/
+#     (setup_logging() จัดการให้อัตโนมัติ)
+#
+# ⚠️  ต้องมีไฟล์: bot/log_formatter.py
+#     (JSONFormatter class อยู่ที่นั่น)
 # ============================================================
 
 version: 1
@@ -15,19 +22,23 @@ formatters:
     format: "%(asctime)s | %(levelname)-8s | %(name)-20s | %(funcName)-25s | %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
     # ตัวอย่าง output:
-    # 2025-05-25 14:30:15 | INFO     | bot.executor         | send_order               | ✅ BUY XAUUSD lot=0.01 price=2341.50
+    # 2025-05-25 14:30:15 | INFO     | bot.executor         | send_order               | BUY XAUUSD lot=0.01
 
-  # รูปแบบสั้น — ใช้กับ console (ดูได้ง่ายตอน debug)
+  # รูปแบบสั้น — ใช้กับ console (ดูง่ายตอน debug)
   simple:
     format: "%(asctime)s | %(levelname)-8s | %(message)s"
     datefmt: "%H:%M:%S"
     # ตัวอย่าง output:
-    # 14:30:15 | INFO     | ✅ BUY XAUUSD lot=0.01
+    # 14:30:15 | INFO     | BUY XAUUSD lot=0.01
 
-  # รูปแบบ JSON — ใช้กับ trade log (parse ง่ายด้วย Python)
+  # ✅ FIX: path ต้องตรงกับ project structure
+  #    bot/log_formatter.py -> class JSONFormatter
   json_formatter:
     (): bot.log_formatter.JSONFormatter
-    # output เป็น JSON ทุก line — ดูตัวอย่างด้านล่าง
+
+  # รูปแบบ trade เฉพาะ — มี field symbol/action/lot/price ครบ
+  trade_json:
+    (): bot.log_formatter.TradeJSONFormatter
 
   # รูปแบบสำหรับ Telegram (ไม่มี timestamp ซ้ำ)
   telegram:
@@ -37,7 +48,7 @@ formatters:
 # ── 2. HANDLERS — ปลายทางของ log ────────────────────────────
 handlers:
 
-  # Console — แสดงบน terminal (ใช้ตอน debug / run_bot.bat)
+  # Console — แสดงบน terminal / run_bot.bat
   console:
     class: logging.StreamHandler
     level: DEBUG
@@ -49,20 +60,22 @@ handlers:
     class: logging.handlers.RotatingFileHandler
     level: INFO
     formatter: detailed
-    filename: logs/bot.log
-    maxBytes: 10485760      # 10 MB
-    backupCount: 10         # เก็บย้อนหลัง 10 ไฟล์ (bot.log.1 ... bot.log.10)
+    filename: logs/bot.log          # ✅ relative path จาก project root
+    maxBytes: 10485760              # 10 MB
+    backupCount: 10                 # เก็บย้อนหลัง 10 ไฟล์
     encoding: utf-8
+    delay: true                     # ✅ FIX: สร้างไฟล์เมื่อมี log จริงๆ ป้องกัน error ถ้า dir ว่าง
 
-  # Trade log — เฉพาะ order ที่เปิด/ปิด (JSON format)
+  # Trade log — เฉพาะ order open/close (JSON format)
   file_trades:
     class: logging.handlers.RotatingFileHandler
     level: INFO
-    formatter: json_formatter
+    formatter: trade_json           # ✅ ใช้ TradeJSONFormatter
     filename: logs/trades.log
-    maxBytes: 5242880       # 5 MB
-    backupCount: 30         # เก็บยาว เพราะต้องวิเคราะห์ย้อนหลัง
+    maxBytes: 5242880               # 5 MB
+    backupCount: 30
     encoding: utf-8
+    delay: true
 
   # Error log — เฉพาะ WARNING ขึ้นไป
   file_errors:
@@ -70,27 +83,30 @@ handlers:
     level: WARNING
     formatter: detailed
     filename: logs/errors.log
-    maxBytes: 5242880       # 5 MB
+    maxBytes: 5242880               # 5 MB
     backupCount: 5
     encoding: utf-8
+    delay: true
 
-  # Daily log — แยกตามวัน (ดูย้อนหลังง่าย)
+  # ✅ FIX: daily log — ใช้ logs/daily/bot.log
+  #    directory logs/daily/ ต้องมีอยู่ก่อน (setup_logging สร้างให้)
   file_daily:
     class: logging.handlers.TimedRotatingFileHandler
     level: INFO
     formatter: detailed
     filename: logs/daily/bot.log
-    when: midnight          # แยกไฟล์ทุกเที่ยงคืน
+    when: midnight
     interval: 1
-    backupCount: 90         # เก็บ 90 วัน
+    backupCount: 90                 # เก็บ 90 วัน
     encoding: utf-8
-    utc: true               # ใช้ UTC (สำคัญ — MT5 ใช้ UTC)
+    utc: true                       # ✅ สำคัญ — MT5 ใช้ UTC
+    delay: true
 
 
 # ── 3. LOGGERS — กำหนดแต่ละ module ──────────────────────────
 loggers:
 
-  # Bot หลัก — loop, scheduler
+  # Bot หลัก — main loop, scheduler
   bot.main:
     level: INFO
     handlers: [console, file_main, file_daily]
@@ -102,7 +118,7 @@ loggers:
     handlers: [console, file_main, file_errors]
     propagate: false
 
-  # Risk manager
+  # Risk manager — log ทุก risk check
   bot.risk_manager:
     level: INFO
     handlers: [console, file_main, file_errors]
@@ -114,9 +130,9 @@ loggers:
     handlers: [console, file_main, file_trades, file_errors]
     propagate: false
 
-  # Metrics writer
+  # Metrics writer — WARNING เท่านั้น
   bot.metrics_writer:
-    level: WARNING          # INFO มากเกินไป — เห็นแค่ error ก็พอ
+    level: WARNING
     handlers: [file_errors]
     propagate: false
 
@@ -132,9 +148,9 @@ loggers:
     handlers: [console, file_main]
     propagate: false
 
-  # Feature engineering
+  # Feature engineering — WARNING เท่านั้น
   features:
-    level: WARNING          # ไม่ verbose — เห็นแค่ปัญหา
+    level: WARNING
     handlers: [file_errors]
     propagate: false
 
@@ -150,7 +166,7 @@ loggers:
     handlers: [file_errors]
     propagate: false
 
-  # Library loggers — ลด noise จาก library อื่น
+  # Library loggers — ลด noise
   urllib3:
     level: WARNING
     propagate: true
@@ -160,9 +176,18 @@ loggers:
   MetaTrader5:
     level: WARNING
     propagate: true
+  httpx:                            # ✅ เพิ่ม: python-telegram-bot v20+ ใช้ httpx
+    level: WARNING
+    propagate: true
+  telegram:                         # ✅ เพิ่ม: python-telegram-bot internal
+    level: WARNING
+    propagate: true
+  apscheduler:
+    level: WARNING
+    propagate: true
 
 
-# ── 4. ROOT LOGGER — fallback ────────────────────────────────
+# ── 4. ROOT LOGGER — fallback (catch-all) ────────────────────
 root:
   level: WARNING
   handlers: [file_errors]

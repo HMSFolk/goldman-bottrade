@@ -15,17 +15,17 @@ Order Executor — ส่ง Order จริงไปยัง MT5
 
 import logging
 import time
-import yaml
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
 import MetaTrader5 as mt5
 
-log = logging.getLogger("bot.executor")
+# ✅ FIX BUG-6: ใช้ get_config() แทน open(config.yaml) โดยตรง
+from config import get_config
+CFG = get_config()
 
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+log = logging.getLogger("bot.executor")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -244,6 +244,11 @@ class OrderExecutor:
             if comment else self.comment
         )[:31]   # MT5 limit 31 chars
 
+        # ✅ FIX BUG-8 CRITICAL: ORDER_FILLING_IOC ใช้ไม่ได้กับ Exness XAUUSD
+        #    ต้องตรวจ filling_mode ที่ symbol รองรับก่อนส่ง order
+        #    Exness ส่วนใหญ่ใช้ FOK หรือ RETURN ไม่ใช่ IOC
+        filling = self._get_filling_mode(symbol)
+
         request = {
             "action"      : mt5.TRADE_ACTION_DEAL,
             "symbol"      : symbol,
@@ -256,7 +261,7 @@ class OrderExecutor:
             "magic"       : self.magic,
             "comment"     : full_comment,
             "type_time"   : mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling,
         }
 
         # ── Step 6: Send พร้อม Retry ──────────────────────────
@@ -314,7 +319,9 @@ class OrderExecutor:
                         f"Retry {attempt}: "
                         f"updated price={request['price']:.5f}"
                     )
-                time.sleep(self.retry_delay * attempt)
+                # ✅ FIX BUG-9: exponential backoff แทน linear (1,2,3s → 1,2,4s)
+                delay = self.retry_delay * (2 ** (attempt - 2))
+                time.sleep(delay)
 
             # ส่ง order
             raw = mt5.order_send(request)
@@ -436,7 +443,7 @@ class OrderExecutor:
             "magic"       : self.magic,
             "comment"     : f"close_{reason}"[:31],
             "type_time"   : mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": self._get_filling_mode(pos.symbol),  # ✅ FIX BUG-8
         }
 
         raw = mt5.order_send(request)
@@ -572,7 +579,9 @@ class OrderExecutor:
 
         log.info(
             f"✅ Modified #{ticket}: "
-            f"SL={new_sl:.5f} TP={new_tp:.5f}"
+            # ✅ FIX BUG-7: new_sl/new_tp อาจเป็น None → ใช้ pos.sl/tp แทน
+            f"SL={new_sl if new_sl is not None else pos.sl:.5f} "
+            f"TP={new_tp if new_tp is not None else pos.tp:.5f}"
         )
         return True
 
@@ -712,6 +721,41 @@ class OrderExecutor:
             f"{symbol}\n"
             f"Reason: {reason}"
         )
+
+    @staticmethod
+    def _get_filling_mode(symbol: str) -> int:
+        """
+        ✅ FIX BUG-8: ตรวจ filling mode ที่ broker/symbol รองรับจริง
+        แทนที่จะ hardcode ORDER_FILLING_IOC ซึ่ง Exness ไม่รองรับ
+
+        MT5 filling_mode เป็น bitmask:
+          1 = ORDER_FILLING_FOK   (Fill or Kill)
+          2 = ORDER_FILLING_IOC   (Immediate or Cancel)
+          4 = ORDER_FILLING_RETURN (Return remaining as pending)
+
+        Exness XAUUSD: ส่วนใหญ่รองรับ FOK หรือ RETURN
+        """
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            # fallback ปลอดภัย
+            return mt5.ORDER_FILLING_FOK
+
+        filling_mode = info.filling_mode  # bitmask
+
+        # ลำดับความสำคัญ: FOK > IOC > RETURN
+        if filling_mode & 1:    # FOK supported
+            return mt5.ORDER_FILLING_FOK
+        if filling_mode & 2:    # IOC supported
+            return mt5.ORDER_FILLING_IOC
+        if filling_mode & 4:    # RETURN supported
+            return mt5.ORDER_FILLING_RETURN
+
+        # ถ้าไม่ match เลย — ลอง FOK (Exness default)
+        log.warning(
+            f"{symbol}: filling_mode={filling_mode} ไม่รู้จัก — "
+            f"fallback to FOK"
+        )
+        return mt5.ORDER_FILLING_FOK
 
     @staticmethod
     def _retcode_msg(retcode: int) -> str:

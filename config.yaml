@@ -1,12 +1,15 @@
 # ============================================================
-# TRADING BOT — MASTER CONFIG
+# TRADING BOT — MASTER CONFIG  (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
+#
+# ⚠️  Credentials (MT5_LOGIN, MT5_PASSWORD, TELEGRAM_TOKEN ฯลฯ)
+#     อยู่ใน .env เท่านั้น — ห้ามใส่ที่นี่
 # ============================================================
 
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
 mt5:
-  # path ของ MT5 terminal บน Windows VPS
-  terminal_path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+  # ⚠️  terminal_path มาจาก .env (MT5_PATH) — ไม่ต้องใส่ที่นี่
+  #     login / password / server มาจาก .env เช่นกัน
 
   # timeout รอ MT5 response (วินาที)
   timeout_sec: 30
@@ -21,7 +24,7 @@ mt5:
 # ── 2. SYMBOLS ───────────────────────────────────────────────
 symbols:
   # รายการ symbol ที่บอทจะเทรด
-  # เพิ่ม/ลบที่นี่ — แล้วต้อง retrain โมเดลใหม่
+  # ⚠️  เพิ่ม/ลบที่นี่ แล้วต้อง retrain โมเดลใหม่
   active:
     - "XAUUSD"    # ทองคำ (main)
     - "EURUSD"    # EUR/USD
@@ -40,7 +43,7 @@ symbols:
 # ── 3. RISK MANAGEMENT ──────────────────────────────────────
 risk:
   # % ของ balance ที่เสี่ยงต่อ 1 trade
-  # 0.01 = 1% | แนะนำ 0.5-1% สำหรับมือใหม่
+  # 0.01 = 1% | แนะนำ 0.005–0.01 สำหรับ production
   risk_per_trade: 0.01
 
   # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้
@@ -66,7 +69,7 @@ risk:
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
   # ระยะ Stop Loss (หน่วย: points)
-  # XAUUSD: 150 points = 15 pips (ประมาณ $1.50 ต่อ 0.01 lot)
+  # XAUUSD: 150 points = 15 pips (≈ $1.50 ต่อ 0.01 lot)
   sl_points:
     XAUUSD: 150
     EURUSD: 120
@@ -81,7 +84,7 @@ order:
   use_trailing_stop: true
 
   # เริ่ม trailing เมื่อกำไรถึง % นี้
-  trailing_start_pct: 0.008   # 0.8%
+  trailing_start_pct: 0.008     # 0.8%
 
   # trailing distance
   trailing_distance_pct: 0.005  # 0.5%
@@ -90,7 +93,7 @@ order:
   max_slippage: 10
 
   # magic number — ระบุ order ว่ามาจากบอทนี้
-  # ห้ามซ้ำกับบอทอื่น
+  # ⚠️  ห้ามซ้ำกับบอทอื่นบน account เดียวกัน
   magic_number: 20250101
 
   # comment ใน order (เห็นใน MT5 history)
@@ -118,22 +121,23 @@ signal:
 # ── 6. TRADING SESSION ──────────────────────────────────────
 session:
   # เทรดเฉพาะช่วงนี้ (UTC)
-  # London: 07:00-16:00 UTC | New York: 12:00-21:00 UTC
-  # Overlap (ดีที่สุด): 12:00-16:00 UTC
+  # London: 07:00–16:00 | New York: 12:00–21:00
+  # Overlap ที่ดีที่สุด: 12:00–16:00 UTC
   allowed_hours_utc:
     start: 7
     end: 20
 
-  # ไม่เทรดวัน
+  # ไม่เทรดวันเสาร์-อาทิตย์
   skip_weekends: true
 
-  # ไม่เทรด 30 นาทีก่อน/หลัง ข่าวสำคัญ (ถ้าเปิดใช้ news filter)
+  # ไม่เทรด n นาทีก่อน/หลัง ข่าวสำคัญ (ถ้าเปิด news filter)
   news_blackout_min: 30
 
-  # วันหยุดตลาด (ปี-เดือน-วัน) — ไม่เทรด
+  # วันหยุดตลาด — ไม่เทรด (อัปเดตทุกปี)
   market_holidays:
     - "2025-12-25"   # Christmas
     - "2026-01-01"   # New Year
+    - "2026-12-25"   # Christmas 2026
 
 
 # ── 7. DATA COLLECTION ──────────────────────────────────────
@@ -152,7 +156,7 @@ data:
     SILVER: "SI=F"        # Silver Futures
     OIL:    "CL=F"        # Crude Oil (optional)
 
-  # อัพเดต data ทุกกี่ชั่วโมง (Task Scheduler จะเป็นคนรัน)
+  # อัปเดต data ทุกกี่ชั่วโมง (Task Scheduler รัน)
   update_interval_hours: 24
 
 
@@ -161,15 +165,20 @@ training:
   # retrain โมเดลอัตโนมัติทุกกี่วัน
   retrain_every_days: 30
 
-  # สัดส่วน train/validation/test
+  # สัดส่วน train / validation / test (รวมต้องเท่ากับ 1.0)
   train_pct: 0.70
   val_pct:   0.15
   test_pct:  0.15
 
-  #ปรับเวลและ loth
-  label_method: "triple_barrier"   # แนะนำสำหรับ production
-  forward_bars: 4                  # 4 × M15 = 1 ชั่วโมง
-  min_return_pct: 0.0015           # 0.15% (ปรับตาม symbol)
+  # วิธี label — triple_barrier แนะนำสำหรับ production
+  label_method: "triple_barrier"
+
+  # ✅ FIX: ลบ duplicate keys (forward_bars / min_return_pct เคยซ้ำ 2 ครั้ง)
+  # กี่ bar ข้างหน้าที่ใช้วัด return  (4 × M15 = 1 ชั่วโมง)
+  forward_bars: 4
+
+  # return ขั้นต่ำที่จะ label เป็น BUY/SELL (น้อยกว่านี้ = HOLD)
+  min_return_pct: 0.0015   # 0.15%
 
   # จำนวน fold ใน walk-forward validation
   wf_splits: 5
@@ -193,13 +202,6 @@ training:
     min_data_in_leaf: 50
     feature_fraction: 0.8
     num_boost_round:  1000
-
-  # Target label — กี่ bar ข้างหน้า
-  forward_bars: 4
-
-  # return ขั้นต่ำที่จะ label เป็น BUY/SELL
-  # น้อยกว่านี้ = HOLD
-  min_return_pct: 0.0015   # 0.15%
 
 
 # ── 9. PATHS ────────────────────────────────────────────────
@@ -227,17 +229,20 @@ dashboard:
 
 # ── 11. NOTIFICATIONS ───────────────────────────────────────
 notifications:
-  # เปิด/ปิด Telegram
+  # ⚠️  telegram_token และ telegram_chat_id มาจาก .env
+  #     ไม่ต้องใส่ที่นี่
+
+  # เปิด/ปิด Telegram alerts
   telegram_enabled: true
 
   # แจ้งเตือนเมื่อ
   notify_on:
-    order_open:    true
-    order_close:   true
-    order_failed:  true
-    daily_summary: true    # สรุปทุกเที่ยงคืน UTC
-    bot_restart:   true
-    daily_loss_hit: true   # แจ้งเมื่อ daily loss limit เตะ
+    order_open:     true
+    order_close:    true
+    order_failed:   true
+    daily_summary:  true    # สรุปทุกวัน
+    bot_restart:    true
+    daily_loss_hit: true    # แจ้งเมื่อ daily loss limit เตะ
 
   # เวลาส่ง daily summary (UTC)
   daily_summary_hour: 21
@@ -245,6 +250,6 @@ notifications:
 
 # ── 12. LOGGING ─────────────────────────────────────────────
 logging:
-  level: "INFO"          # DEBUG | INFO | WARNING | ERROR
+  level: "INFO"           # DEBUG | INFO | WARNING | ERROR
   max_file_size_mb: 10
-  backup_count: 5        # เก็บ log ย้อนหลัง 5 ไฟล์
+  backup_count: 5         # เก็บ log ย้อนหลัง 5 ไฟล์

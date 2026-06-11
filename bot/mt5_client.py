@@ -77,11 +77,13 @@ class MT5Client:
             r"C:\Program Files\MetaTrader 5\terminal64.exe"
         )
 
-        # Reconnect config
-        self._max_retries   = 5
-        self._retry_delay   = 10    # วินาที
-        self._last_ping     = 0     # timestamp ของ ping ล่าสุด
-        self._ping_interval = 60    # ping ทุก 60 วินาที
+        # ✅ FIX BUG-11: อ่าน retry values จาก config แทน hardcode
+        from config import get_config as _cfg
+        _c = _cfg()
+        self._max_retries   = _c.get('mt5', {}).get('max_reconnect_attempts', 5)
+        self._retry_delay   = _c.get('mt5', {}).get('reconnect_delay_sec', 10)
+        self._ping_interval = _c.get('mt5', {}).get('timeout_sec', 60)
+        self._last_ping     = 0
 
         # Cache symbol info (ไม่ต้อง query ทุกครั้ง)
         self._symbol_cache: dict = {}
@@ -238,11 +240,10 @@ class MT5Client:
         """
         เปิด symbol ใน Market Watch
         MT5 บางตัวต้อง activate ก่อนใช้งาน
+        ✅ FIX BUG-9: ใช้ get_config() แทน open(config.yaml) โดยตรง
         """
-        import yaml
-        with open("config.yaml", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-
+        from config import get_config
+        cfg     = get_config()
         symbols = cfg['symbols']['active']
         for sym in symbols:
             if not mt5.symbol_select(sym, True):
@@ -322,7 +323,13 @@ class MT5Client:
         """
         self.ensure_connected()
 
-        tf    = TF_MAP.get(timeframe)
+        tf = TF_MAP.get(timeframe)
+        # ✅ FIX BUG-10: ตรวจ tf=None ก่อนเรียก MT5
+        if tf is None:
+            raise ValueError(
+                f"Timeframe ไม่รู้จัก: {timeframe} "
+                f"(รองรับ: {list(TF_MAP.keys())})"
+            )
         rates = mt5.copy_rates_range(
             symbol, tf, date_from, date_to
         )
@@ -483,9 +490,9 @@ class MT5Client:
             df = df[df['symbol'] == symbol]
 
         # กรองเฉพาะ magic number ของบอทนี้
-        import yaml
-        with open("config.yaml", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
+        # ✅ FIX BUG-9: ใช้ get_config() แทน open(config.yaml) โดยตรง
+        from config import get_config
+        cfg   = get_config()
         magic = cfg['order']['magic_number']
         if 'magic' in df.columns:
             df = df[df['magic'] == magic]
@@ -600,7 +607,7 @@ class MT5Client:
                     self._last_ping, tz=timezone.utc
                 ).isoformat() if self._last_ping else None,
                 'terminal_version' : (
-                    terminal.community_version
+                    terminal.build        # ✅ FIX BUG-8: .community_version ไม่มีใน MT5 API — ใช้ .build แทน
                     if terminal else None
                 ),
                 'account_login'    : (

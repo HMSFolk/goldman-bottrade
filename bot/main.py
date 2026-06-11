@@ -16,10 +16,7 @@ Startup sequence:
 """
 
 import logging
-import logging.config
-import yaml
 import time
-import json
 import signal
 import sys
 import traceback
@@ -29,11 +26,15 @@ from datetime import datetime, timezone
 import schedule
 import MetaTrader5 as mt5
 
-# โหลด config + logging
-with open("logging.yaml", encoding="utf-8") as f:
-    logging.config.dictConfig(yaml.safe_load(f))
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX BUG-1: ใช้ setup_logging() แทน dictConfig โดยตรง
+#    setup_logging สร้าง logs/ directory และ import log_formatter ก่อน
+from bot.setup_logging import setup_logging
+setup_logging()   # ← ต้องเรียกก่อน import อื่นๆ ทั้งหมด
+
+# ✅ FIX BUG-2+5+7: ใช้ get_config() แทน yaml.safe_load โดยตรง
+#    get_config() โหลด .env + validate + deep copy ครบถ้วน
+from config import get_config, validate_config, reload_config
+CFG = get_config()
 
 log = logging.getLogger("bot.main")
 
@@ -110,6 +111,11 @@ def startup():
     log.info(f"   Symbols:  {STATE.symbols}")
     log.info(f"   Timeframe:{STATE.timeframe}")
     log.info("=" * 60)
+
+    # ── 0. Validate Config ──────────────────────────────────────
+    # ✅ FIX BUG-5: ตรวจ .env + config.yaml ครบก่อน start
+    validate_config(raise_on_error=True)
+    log.info("✅ Config validated")
 
     # ── 1. สร้างโฟลเดอร์ที่ต้องการ ─────────────────────────────
     for folder in ["logs", "logs/daily", "db", "flags", "reports"]:
@@ -220,23 +226,27 @@ def run_tick(symbol: str):
             return
 
         # ── 3. ดึงราคาล่าสุด ─────────────────────────────────
-        tf_map = {
-            "M15": mt5.TIMEFRAME_M15,
-            "H1" : mt5.TIMEFRAME_H1,
-            "M5" : mt5.TIMEFRAME_M5,
-        }
-        tf = tf_map.get(STATE.timeframe, mt5.TIMEFRAME_M15)
+        # ✅ FIX BUG-3: เพิ่ม H4, D1, W1 ที่ขาดหายไป
+        # ✅ FIX BUG-4: ส่ง string "M15" ให้ get_ohlcv ไม่ใช่ integer
+        #    (TF_MAP conversion อยู่ใน mt5_client.get_ohlcv แล้ว)
+        valid_tfs = {"M1","M5","M15","M30","H1","H4","D1","W1"}
 
-        df_primary = STATE.client.get_ohlcv(symbol, tf, n_bars=300)
+        primary_tf = STATE.timeframe
+        if primary_tf not in valid_tfs:
+            log.error(f"Unknown timeframe: {primary_tf}")
+            return
+
+        df_primary = STATE.client.get_ohlcv(symbol, primary_tf, n_bars=300)
 
         # โหลด HTF สำหรับ multi-timeframe
         htf_dfs = {}
         for htf_name in CFG['symbols']['htf_timeframes']:
-            htf_tf = tf_map.get(htf_name)
-            if htf_tf:
+            if htf_name in valid_tfs:
                 htf_dfs[htf_name] = STATE.client.get_ohlcv(
-                    symbol, htf_tf, n_bars=200
+                    symbol, htf_name, n_bars=200
                 )
+            else:
+                log.warning(f"Unknown HTF timeframe skipped: {htf_name}")
 
         # ── 4. Build Features ─────────────────────────────────
         df = build_features_live(df_primary, symbol, STATE.timeframe)
@@ -405,15 +415,29 @@ def _weekly_retrain():
 
 
 def _check_config_reload():
-    """Hot-reload config.yaml ถ้าไฟล์เปลี่ยน"""
+    """
+    Hot-reload config.yaml ถ้าไฟล์เปลี่ยน
+    ✅ FIX BUG-6: update STATE.symbols และ STATE.timeframe ด้วย
+    """
     global CFG
     try:
-        new_mtime = Path("config.yaml").stat().st_mtime
+        config_path = Path(CFG['paths'].get('config', 'config.yaml')
+                           ) if 'paths' in CFG else Path("config.yaml")
+        # ใช้ mtime จาก project root
+        project_root = Path(__file__).parent.parent
+        yaml_path    = project_root / "config.yaml"
+        new_mtime    = yaml_path.stat().st_mtime
+
         if new_mtime != STATE.config_mtime:
-            with open("config.yaml", encoding="utf-8") as f:
-                CFG = yaml.safe_load(f)
+            CFG = reload_config()           # ใช้ reload_config() จาก config.py
             STATE.config_mtime = new_mtime
-            log.info("🔄 config.yaml reloaded")
+            # ✅ sync STATE กับ config ใหม่
+            STATE.symbols   = CFG['symbols']['active']
+            STATE.timeframe = CFG['symbols']['primary_timeframe']
+            log.info(
+                f"🔄 config.yaml reloaded — "
+                f"symbols={STATE.symbols} tf={STATE.timeframe}"
+            )
     except Exception as e:
         log.warning(f"Config reload error: {e}")
 

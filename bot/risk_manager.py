@@ -17,7 +17,6 @@ Risk Manager — ระบบป้องกันความเสี่ยง
 """
 
 import logging
-import yaml
 import time
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
@@ -25,10 +24,11 @@ from typing import Optional
 
 import MetaTrader5 as mt5
 
-log = logging.getLogger("bot.risk_manager")
+# ✅ FIX BUG-1: ใช้ get_config() แทน open(config.yaml) โดยตรง
+from config import get_config
+CFG = get_config()
 
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+log = logging.getLogger("bot.risk_manager")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -107,10 +107,10 @@ class RiskManager:
         self.max_lot           = r['max_lot']              # 0.50
 
         # Daily tracking
-        self._daily_start_balance: float = None
-        self._daily_start_date: str      = None
-        self._trades_today:     int      = 0
-        self._pnl_today:        float    = 0.0
+        self._daily_start_balance: Optional[float] = None   # ✅ FIX BUG-4
+        self._daily_start_date:    Optional[str]   = None   # ✅ FIX BUG-4
+        self._trades_today:        int             = 0
+        self._pnl_today:           float           = 0.0
 
         # Margin limit
         self.min_margin_level  = 200.0   # % ไม่เทรดถ้า margin < 200%
@@ -314,9 +314,19 @@ class RiskManager:
         if self._daily_start_balance is None:
             self._daily_start_balance = current_balance
 
+        start = self._daily_start_balance
+
+        # ✅ FIX BUG-2: ป้องกัน ZeroDivisionError ถ้า start=0
+        if start <= 0:
+            log.warning("daily_start_balance = 0 — skip daily loss check")
+            return RiskCheckResult(
+                passed = True,
+                check  = "daily_loss",
+                reason = "start_balance=0 (skip)",
+            )
+
         # คำนวณ loss %
-        start   = self._daily_start_balance
-        loss_pct= (start - current_balance) / start
+        loss_pct = (start - current_balance) / start
 
         limit   = self.max_daily_loss
 
@@ -518,8 +528,9 @@ class RiskManager:
         """
         limit = self.min_margin_level
 
-        # ถ้า margin_level = 0 หรือ 999 แสดงว่าไม่มี open position
-        if margin_level in (0, 999, float('inf')):
+        # ✅ FIX BUG-5: MT5 คืน 0.0 หรือตัวเลขใหญ่มาก (เช่น 100000)
+        #    เมื่อไม่มี open position — ทั้งหมดนี้หมายความว่า "safe"
+        if margin_level <= 0 or margin_level >= 10000:
             return RiskCheckResult(
                 passed = True,
                 check  = "margin_level",
@@ -563,7 +574,8 @@ class RiskManager:
         > 5% = ระวัง, > 10% = หยุดเปิดใหม่
         """
         if balance <= 0:
-            return RiskCheckResult(passed=True, check="equity_dd")
+            # ✅ FIX BUG-3: ใช้ check name "equity_drawdown" ให้สอดคล้อง
+            return RiskCheckResult(passed=True, check="equity_drawdown")
 
         floating_dd  = (balance - equity) / balance
         limit        = 0.10   # 10% floating loss
@@ -614,7 +626,7 @@ class RiskManager:
         is_weekend = (
             weekday == 5 or   # Saturday ทั้งวัน
             weekday == 6 or   # Sunday ทั้งวัน
-            (weekday == 4 and now.hour >= 22) or   # Fri หลัง 22:00
+            (weekday == 4 and now.hour >= 22)   # Fri หลัง 22:00
         )
 
         if is_weekend:
