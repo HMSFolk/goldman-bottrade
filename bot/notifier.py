@@ -23,14 +23,13 @@ from enum import IntEnum
 from typing import Optional
 
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+# ✅ FIX BUG-1: ใช้ get_config() แทน open(config.yaml) โดยตรง
+#    get_config() โหลด .env ด้วย ทำให้ทุก credentials พร้อม
+from config import get_config
+_CFG = get_config()
+
 log = logging.getLogger("bot.notifier")
-
-import yaml
-with open("config.yaml", encoding="utf-8") as f:
-    _CFG = yaml.safe_load(f)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -177,8 +176,28 @@ class TelegramNotifier:
             log.warning("Telegram queue full — dropping message")
 
     def send_urgent(self, text: str):
-        """Shortcut สำหรับ CRITICAL message — ไม่ throttle"""
-        self.send(text, Priority.CRITICAL, "critical")
+        """
+        Shortcut สำหรับ CRITICAL message
+        ✅ FIX BUG-6: bypass deduplication — CRITICAL alerts ต้องส่งได้เสมอ
+        ไม่อย่างนั้น "MT5 Connection Lost" ครั้งที่ 2 จะถูก suppress 60 วินาที
+        """
+        if not self._enabled:
+            log.debug(f"Telegram disabled — skip urgent: {text[:50]}")
+            return
+
+        if len(text) > self.MAX_MESSAGE_LENGTH:
+            text = text[:self.MAX_MESSAGE_LENGTH - 3] + "..."
+
+        msg = Message(
+            priority = -int(Priority.CRITICAL),
+            text     = text,
+        )
+        try:
+            self._queue.put_nowait(msg)
+        except queue.Full:
+            # CRITICAL: ถ้า queue เต็ม ให้ส่งทันทีใน thread นี้ (blocking)
+            log.warning("Queue full — sending urgent directly")
+            self._send_with_retry(text)
 
     # ── Background Sender ─────────────────────────────────────
     def _sender_loop(self):
@@ -299,6 +318,7 @@ class TelegramNotifier:
         """
         ตรวจว่าควรส่งหรือ throttle
         CRITICAL และ HIGH ไม่ถูก throttle เสมอ
+        ✅ FIX BUG-3: ใช้ _lock ป้องกัน race condition
         """
         if priority >= Priority.HIGH:
             return True   # urgent ส่งเสมอ
@@ -307,30 +327,32 @@ class TelegramNotifier:
         if throttle_sec == 0:
             return True
 
-        last = self._last_sent.get(msg_type, 0)
-        if time.time() - last >= throttle_sec:
-            self._last_sent[msg_type] = time.time()
-            return True
+        with self._lock:
+            last = self._last_sent.get(msg_type, 0)
+            if time.time() - last >= throttle_sec:
+                self._last_sent[msg_type] = time.time()
+                return True
 
         return False
 
     def _is_duplicate(self, text: str) -> bool:
-        """ตรวจ message ซ้ำใน dedup_window วินาที"""
+        """
+        ตรวจ message ซ้ำใน dedup_window วินาที
+        ✅ FIX BUG-2: ใช้ _lock ป้องกัน race condition กับ sender thread
+        """
         import hashlib
         h   = hashlib.md5(text.encode()).hexdigest()
         now = time.time()
 
-        # ลบ hash เก่า
-        self._recent_hashes = {
-            k: v for k, v in self._recent_hashes.items()
-            if now - v < self._dedup_window
-        }
-
-        if h in self._recent_hashes:
-            return True
-
-        self._recent_hashes[h] = now
-        return False
+        with self._lock:   # ← lock ทุก operation บน shared dict
+            self._recent_hashes = {
+                k: v for k, v in self._recent_hashes.items()
+                if now - v < self._dedup_window
+            }
+            if h in self._recent_hashes:
+                return True
+            self._recent_hashes[h] = now
+            return False
 
     @property
     def queue_size(self) -> int:
@@ -394,9 +416,12 @@ class BotMessages:
     ) -> str:
         icon   = "💚" if profit >= 0 else "🔴"
         result = "WIN" if profit >= 0 else "LOSS"
-        pips   = abs(close_price - open_price) * (
-            10 if "JPY" not in symbol else 100
-        )
+
+        # ✅ FIX BUG-4+5: ลบ pips (dead code ที่คำนวณผิดด้วย)
+        #    pip formula เดิม ×10 ผิดสำหรับ EURUSD 5-digit (ควร ×10000)
+        #    และ XAUUSD ไม่ใช้ pips — แสดง price movement เป็น points แทน
+        price_move = abs(close_price - open_price)
+
         return (
             f"{icon} *Trade {result}*\n"
             f"{'↑' if direction=='BUY' else '↓'} "
@@ -404,6 +429,7 @@ class BotMessages:
             f"Ticket:  `#{ticket}`\n"
             f"Entry:   `{open_price:.5f}`\n"
             f"Exit:    `{close_price:.5f}`\n"
+            f"Move:    `{price_move:.5f}`\n"
             f"P&L:     `${profit:+.2f}`\n"
             f"Reason:  `{reason}`\n"
             f"⏰ {_now_thai()}"

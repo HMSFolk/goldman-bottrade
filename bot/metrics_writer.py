@@ -29,14 +29,22 @@ import pandas as pd
 
 log = logging.getLogger("bot.metrics_writer")
 
-# Path จาก config
-import yaml
-with open("config.yaml", encoding="utf-8") as f:
-    _CFG = yaml.safe_load(f)
+# ✅ FIX BUG-7+9: ใช้ get_config() แทน open(config.yaml) โดยตรง
+#    และย้าย path constants มาเป็น lazy เพื่อให้แน่ใจว่า config โหลดแล้ว
+from config import get_config
 
-DB_PATH    = Path(_CFG['paths']['db'])           # db/trades.db
-LOG_DIR    = Path(_CFG['paths']['logs'])         # logs/
-ACCOUNT_JSON = LOG_DIR / "account.json"          # Streamlit อ่าน
+def _get_db_path() -> Path:
+    """Lazy path resolution — อ่านจาก config ทุกครั้ง"""
+    return Path(get_config()['paths']['db'])
+
+def _get_log_dir() -> Path:
+    return Path(get_config()['paths']['logs'])
+
+# Module-level shortcuts (resolve ตอน import — ปลอดภัยเพราะ config.py ทำงานแล้ว)
+_CFG         = get_config()
+DB_PATH      = Path(_CFG['paths']['db'])
+LOG_DIR      = Path(_CFG['paths']['logs'])
+ACCOUNT_JSON = LOG_DIR / "account.json"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -209,6 +217,10 @@ class MetricsWriter:
 
     def _insert_open_trade(self, trade: dict):
         """Insert trade ที่เพิ่งเปิด"""
+        # ✅ FIX BUG-8 CRITICAL: executor.py ส่ง key 'lot' แต่เดิมอ่าน 'volume'
+        #    ทำให้ lot size ในฐานข้อมูลผิดทุก trade — fix ด้วยการรับทั้งสอง key
+        volume = trade.get('volume') or trade.get('lot', 0.01)
+
         with _get_conn() as conn:
             conn.execute("""
                 INSERT OR IGNORE INTO trades
@@ -221,7 +233,7 @@ class MetricsWriter:
                 trade.get('open_time',  _now()),
                 trade.get('symbol',     ''),
                 trade.get('direction',  'BUY'),
-                trade.get('volume',     0.01),
+                volume,                            # ✅ ใช้ volume ที่ resolve แล้ว
                 trade.get('open_price', 0.0),
                 trade.get('sl',         0.0),
                 trade.get('tp',         0.0),
@@ -517,12 +529,14 @@ class MetricsWriter:
         limit:     int = 100,
     ) -> pd.DataFrame:
         """Signal ล่าสุดสำหรับ dashboard"""
+        # ✅ FIX BUG-10: ใช้ parameterized query แทน f-string LIMIT
         query  = "SELECT * FROM signals"
-        params = []
+        params: list = []
         if symbol:
             query  += " WHERE symbol = ?"
             params.append(symbol)
-        query += f" ORDER BY ts DESC LIMIT {limit}"
+        query += " ORDER BY ts DESC LIMIT ?"
+        params.append(max(1, int(limit)))   # clamp ป้องกัน negative
 
         with _get_conn() as conn:
             df = pd.read_sql_query(query, conn, params=params)
