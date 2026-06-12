@@ -1,0 +1,157 @@
+# ============================================================
+# TRADING BOT — .gitignore  (Production-ready)
+# ============================================================
+
+
+# ── 1. CREDENTIALS (ห้าม commit เด็ดขาด) ──────────────────
+# ถ้า .env หลุดขึ้น GitHub — MT5 และ Telegram จะถูก compromise ทันที
+.env
+.env.local
+.env.production
+.env.*
+!.env.example          # ← ยกเว้น template ที่ไม่มีค่าจริง
+
+
+# ── 2. DATA FILES (ไฟล์ใหญ่ — ดึงใหม่ได้จาก MT5/yfinance) ──
+data/raw/*
+data/processed/*
+# ✅ เก็บ folder structure ไว้ (.gitkeep ทำงานได้ถูกต้อง)
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+
+# ── 3. TRAINED MODELS (train ใหม่ได้ — ไฟล์ใหญ่) ────────
+models/saved/*
+!models/saved/.gitkeep
+# model file extensions
+*.pkl
+*.pickle
+*.pth               # PyTorch model weights
+*.pt                # PyTorch
+*.onnx              # exported model
+*.h5                # Keras/HDF5
+*.hdf5
+
+
+# ── 4. DATABASE & LOGS ──────────────────────────────────────
+# ✅ FIX: ใช้ /* แทน / เพื่อให้ !.gitkeep ทำงานได้
+logs/*
+!logs/.gitkeep
+!logs/daily/
+logs/daily/*
+!logs/daily/.gitkeep
+
+# ✅ FIX: ใช้ /* แทน / — แก้ปัญหา !db/.gitkeep ไม่ทำงาน
+db/*
+!db/.gitkeep
+
+# flags (สร้าง/ลบ runtime)
+flags/*
+!flags/.gitkeep
+
+
+# ── 5. REPORTS (generate จาก backtest) ─────────────────────
+reports/*.png
+reports/*.jpg
+reports/*.html
+reports/*.pdf
+# ✅ เก็บ CSV backtest results ไว้ (เปลี่ยนจาก ignore เป็น track ได้)
+# reports/*.csv   ← uncomment ถ้าไม่อยากเก็บ
+
+
+# ── 6. DATA FILES (large) ───────────────────────────────────
+*.parquet
+*.feather
+# ✅ FIX: *.csv กว้างเกินไป — ระบุ path ที่ชัดเจนแทน
+data/**/*.csv
+# reports/*.csv ← uncomment แยกต่างหากถ้าต้องการ
+
+
+# ── 7. PYTHON CACHE ─────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# pytest / test cache
+.pytest_cache/
+.cache/
+
+# mypy / type checker
+.mypy_cache/
+.dmypy.json
+
+# profiling
+*.prof
+
+
+# ── 8. VIRTUAL ENVIRONMENT ──────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+
+# ── 9. IDE & EDITOR ─────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json    # แชร์ recommended extensions ได้
+!.vscode/settings.json      # ✅ เพิ่ม: เก็บ workspace settings
+
+.idea/
+*.iml
+
+.ipynb_checkpoints/
+# *.ipynb             ← uncomment ถ้าไม่อยากเก็บ notebook
+
+*.swp
+*.swo
+*~
+
+
+# ── 10. WINDOWS SPECIFIC ────────────────────────────────────
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.tmp
+*.temp
+~$*
+
+
+# ── 11. MACOS (ถ้า dev บน Mac) ──────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+
+# ── 12. SENSITIVE FILES ─────────────────────────────────────
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# MT5 backup files
+*.bak
+MetaTrader*/
+
+
+# ── 13. OPTUNA DATABASE ─────────────────────────────────────
+# ✅ FIX: optuna/*.db เท่านั้น ไม่ใช่ *.db ทั้งหมด (db/.gitkeep conflict)
+optuna_studies/
+optuna_*.db
+
+
+# ── 14. BUILD & DISTRIBUTION ────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+pip-wheel-metadata/
+.eggs/
