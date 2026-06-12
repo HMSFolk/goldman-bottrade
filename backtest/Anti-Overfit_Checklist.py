@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 def validate_no_overfit(train_score, val_score, test_score):
     checks = {
         "Train-Val gap < 10%":     abs(train_score - val_score)  < 0.10,
@@ -7,4 +8,15 @@ def validate_no_overfit(train_score, val_score, test_score):
         "Max Drawdown < 20%":      True,  # ต้องคำนวณจาก backtest
     }
     for check, passed in checks.items():
+=======
+def validate_no_overfit(train_score, val_score, test_score):
+    checks = {
+        "Train-Val gap < 10%":     abs(train_score - val_score)  < 0.10,
+        "Val-Test gap < 5%":       abs(val_score   - test_score) < 0.05,
+        "Test accuracy > 52%":     test_score > 0.52,   # random = 50% (binary)
+        "Sharpe Ratio > 1.0":      True,  # ต้องคำนวณจาก backtest
+        "Max Drawdown < 20%":      True,  # ต้องคำนวณจาก backtest
+    }
+    for check, passed in checks.items():
+>>>>>>> 98ac82b18ee8d71be376450f278ba77dde0c1c3e
         print(f"{'✅' if passed else '❌'} {check}")
