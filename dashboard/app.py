@@ -9,15 +9,20 @@ Streamlit Dashboard — Trading Bot Monitor
   - logs/account.json (real-time snapshot)
 """
 
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import json
-import yaml
 import sqlite3
-from pathlib import Path
+import time
 from datetime import datetime, timezone, timedelta
 
 # ── Page Config ────────────────────────────────────────────────
@@ -28,12 +33,13 @@ st.set_page_config(
     initial_sidebar_state = "collapsed",
 )
 
-# ── Load Config ────────────────────────────────────────────────
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX CRITICAL: ใช้ get_config() แทน yaml.safe_load โดยตรง
+from config import get_config
+CFG = get_config()
 
-DB_PATH      = Path(CFG['paths']['db'])
-ACCOUNT_JSON = Path(CFG['paths']['logs']) / "account.json"
+# ✅ FIX CRITICAL: absolute paths จาก project root
+DB_PATH      = _ROOT / CFG['paths']['db']
+ACCOUNT_JSON = _ROOT / CFG['paths']['logs'] / "account.json"
 REFRESH_SEC  = CFG['dashboard']['refresh_sec']
 
 # ── Dark Theme CSS ─────────────────────────────────────────────

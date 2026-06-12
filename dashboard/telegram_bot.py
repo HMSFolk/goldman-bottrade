@@ -1,4 +1,4 @@
-# dashboard/telegram_bot.py
+# dashboard/telegram_control.py
 """
 Telegram Command Bot — สั่งงาน Trading Bot จากมือถือ
 ════════════════════════════════════════════════════════════
@@ -20,17 +20,23 @@ Security:
 ════════════════════════════════════════════════════════════
 """
 
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# ✅ FIX CRITICAL-1: setup_logging ก่อน import อื่น
+from bot.setup_logging import setup_logging
+setup_logging()
+
 import logging
-import os
 import json
 import sqlite3
 import asyncio
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Optional
 
-import yaml
-from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
@@ -40,18 +46,21 @@ from telegram.ext import (
     filters,
 )
 
-load_dotenv()
+# ✅ FIX CRITICAL-2: ใช้ get_config() แทน yaml.safe_load + load_dotenv
+#    get_config() merge .env ให้แล้ว — credentials อยู่ใน CFG
+from config import get_config
+CFG = get_config()
+
 log = logging.getLogger("dashboard.telegram_bot")
 
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX CRITICAL-3: absolute paths จาก project root
+DB_PATH      = _ROOT / CFG['paths']['db']
+FLAGS_DIR    = _ROOT / CFG['paths']['flags']
+ACCOUNT_JSON = _ROOT / CFG['paths']['logs'] / "account.json"
 
-DB_PATH      = Path(CFG['paths']['db'])
-FLAGS_DIR    = Path(CFG['paths']['flags'])
-ACCOUNT_JSON = Path(CFG['paths']['logs']) / "account.json"
-
-TOKEN   = os.getenv("TELEGRAM_TOKEN",   "")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+# ✅ FIX HIGH: อ่าน TOKEN/CHAT_ID จาก CFG (merge .env แล้ว) ไม่ใช่ os.getenv โดยตรง
+TOKEN   = CFG.get('notifications', {}).get('telegram_token',   '')
+CHAT_ID = CFG.get('notifications', {}).get('telegram_chat_id', '')
 
 
 # ══════════════════════════════════════════════════════════════
@@ -674,7 +683,6 @@ async def cmd_help(
         parse_mode="Markdown",
     )
 
-
 # ── Unknown command ───────────────────────────────────────────
 async def cmd_unknown(
     update: Update,
@@ -686,7 +694,6 @@ async def cmd_unknown(
         "❓ ไม่รู้จักคำสั่งนี้\n"
         "ใช้ /help เพื่อดูรายการคำสั่ง"
     )
-
 
 # ══════════════════════════════════════════════════════════════
 # Bot Setup & Run
@@ -755,10 +762,6 @@ def run_telegram_bot():
         drop_pending_updates = True,
     )
 
-
 if __name__ == "__main__":
-    logging.basicConfig(
-        level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] %(message)s",
-    )
+    # ✅ FIX: ไม่ต้อง basicConfig — setup_logging() เรียกแล้วที่ top of file
     run_telegram_bot()

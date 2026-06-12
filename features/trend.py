@@ -383,7 +383,6 @@ def _add_vwap(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ══════════════════════════════════════════════════════════════
 # 7. Composite Trend Score
 # ══════════════════════════════════════════════════════════════
@@ -428,3 +427,4 @@ def _add_trend_composite(df: pd.DataFrame) -> pd.DataFrame:
         labels = ['strong_down', 'weak_down', 'neutral',
                   'weak_up', 'strong_up']
     ).astype(str)
+    return df

@@ -276,7 +276,7 @@ def walk_forward_train(
         model.fit(
             X_train, y_tr_e,
             eval_set              = [(X_test, y_te_e)],
-            early_stopping_rounds = 50,
+            #early_stopping_rounds = 50,
             verbose               = False,
         )
 
@@ -613,7 +613,7 @@ def _save_report(
     }
 
     out = REPORTS_DIR / f"train_report_{symbol}_{timeframe}.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     log.info(f"📄 บันทึก report → {out}")
 
 

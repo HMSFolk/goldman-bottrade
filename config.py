@@ -23,7 +23,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-
 # ── Validation Schema ────────────────────────────────────────
 # (key_path, type, required)
 _REQUIRED_ENV = [

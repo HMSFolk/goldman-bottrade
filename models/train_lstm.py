@@ -870,7 +870,7 @@ def _save_report(result: LSTMTrainResult, symbol: str, timeframe: str):
         ],
     }
     out = REPORTS_DIR / f"train_report_lstm_{symbol}_{timeframe}.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
 
 # ══════════════════════════════════════════════════════════════
 # Entry Point

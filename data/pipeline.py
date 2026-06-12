@@ -132,7 +132,7 @@ def _save_last_update(results: dict):
     """บันทึก timestamp ว่า pipeline รันล่าสุดเมื่อไหร่"""
     status = {
         "last_run": datetime.now(timezone.utc).isoformat(),
-        "steps"   : {k: "ok" if v else "failed" for k, v in results.items()},
+        "steps" : {k: "ok" if (hasattr(v, 'empty') and not v.empty) or (isinstance(v, bool) and v) else "failed" for k, v in results.items()},
     }
     # ✅ FIX BUG-6: absolute path
     out_path = _ROOT / CFG['paths']['logs'] / "pipeline_status.json"

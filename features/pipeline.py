@@ -41,15 +41,15 @@ from features.trend        import add_trend_features
 from features.momentum     import add_momentum_features
 from features.volatility   import add_volatility_features
 from features.price_action import add_price_action_features
-# ✅ FIX BUG-3: ชื่อไฟล์จริงคือ mtf_and_label ไม่ใช่ mtf_label
 from features.mtf_and_label import add_mtf_features, add_target_label
 
 
 # ── Constants ─────────────────────────────────────────────────
 FORWARD_BARS  = CFG['training']['forward_bars']       # 4
 MIN_RETURN    = CFG['training']['min_return_pct']     # 0.0015
-# ✅ FIX BUG-5: absolute paths จาก project root
 RAW_DIR       = _ROOT / CFG['paths']['data_raw']
+print(f"[DEBUG] โฟลเดอร์ RAW อยู่ที่: {RAW_DIR}")
+
 PROCESSED_DIR = _ROOT / CFG['paths']['data_processed']
 
 # columns ที่ไม่ใช่ feature (ไม่ส่งให้โมเดล)
@@ -137,6 +137,10 @@ def build_features(
 
     # ── Load ──────────────────────────────────────────────────
     df     = load_raw(symbol, timeframe)
+    print(f"[DEBUG] โหลดไฟล์สำเร็จ! จำนวนแถวคือ: {len(df)}")
+    if len(df) == 0:
+        print("[DEBUG] ข้อมูลว่างเปล่า! ตรวจสอบไฟล์ใน data/raw อีกที")
+
     df     = check_data_quality(df, f"{symbol}_{timeframe}")
     n_raw  = len(df)
 
@@ -170,7 +174,12 @@ def build_features(
 
     for step_name, fn in steps:
         try:
+            
+            if df is None:
+                raise ValueError(f"df เป็น None ก่อนเข้า {step_name}")
             df = fn(df)
+            if df is None:
+                raise ValueError(f"ฟังก์ชัน {step_name} คืนค่ากลับมาเป็น None")
         except Exception as e:
             log.error(f"  ❌ {step_name}: {e}", exc_info=True)
             raise
@@ -189,7 +198,7 @@ def build_features(
         df = add_target_label(
             df,
             forward_bars = FORWARD_BARS,
-            min_return   = MIN_RETURN,
+            min_return_pct = MIN_RETURN,
             label_method = label_method,
         )
 
@@ -222,8 +231,7 @@ def build_features(
 # ── Batch Build (ทุก symbol) ──────────────────────────────────
 def build_all_features(
     symbols:   list = None,
-    timeframe: str  = "M15",
-) -> dict:
+    timeframe: str  = "M15",) -> dict:
     """
     Build features ทุก symbol แล้วบันทึกลง data/processed/
     คืนค่า dict: {"XAUUSD": DataFrame, "EURUSD": DataFrame, ...}
@@ -231,6 +239,7 @@ def build_all_features(
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     symbols = symbols or CFG['symbols']['active']
+    print(f"[DEBUG] รายชื่อ Symbols ที่ต้องทำ: {symbols}")
     results = {}
     errors  = []
 
@@ -238,8 +247,15 @@ def build_all_features(
     log.info(f"Timeframe: {timeframe} | Forward bars: {FORWARD_BARS} | Min return: {MIN_RETURN}")
 
     for sym in symbols:
+        sym = sym.strip()
         try:
             df = build_features(sym, timeframe, for_live=False)
+            print(f"[DEBUG] build_features สำเร็จ! จำนวนแถวที่ได้: {len(df)}")
+
+            # แก้จุดที่ 3: เพิ่มเงื่อนไขให้แน่ใจว่า df มีข้อมูลจริง
+            if df.empty:
+                print(f"❌ [WARN] {sym} ข้อมูลว่างเปล่า!")
+                continue
 
             # บันทึก
             out = PROCESSED_DIR / f"{sym}_{timeframe}_features.parquet"
@@ -249,7 +265,10 @@ def build_all_features(
             results[sym] = df
 
         except Exception as e:
+            import traceback
+            print(f"❌ [CRITICAL ERROR] เกิดข้อผิดพลาดตอนทำ {sym}: {str(e)}")
             log.error(f"❌ {sym} ล้มเหลว: {e}", exc_info=True)
+            traceback.print_exc()
             errors.append(sym)
 
     # สรุป

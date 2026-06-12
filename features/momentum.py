@@ -18,6 +18,14 @@ log = logging.getLogger("features")
 
 
 def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
+    # --- เพิ่ม 3 บรรทัดนี้เพื่อดัก Error ---
+    if df is None:
+        print("❌ [CRITICAL] df เป็น None ใน momentum.py")
+        return df
+    print(f"[DEBUG] momentum.py ได้รับ df ที่มี {len(df)} แถว")
+    # -----------------------------------
+
+
     """
     เพิ่ม momentum features ทั้งหมดเข้า DataFrame
     input:  df มี columns: open, high, low, close, tick_volume
@@ -438,3 +446,4 @@ def _add_momentum_composite(df: pd.DataFrame) -> pd.DataFrame:
             df['wr_above_50']
         )
         # 4 = ทุกตัว bullish | 0 = ทุกตัว bearish
+        return df

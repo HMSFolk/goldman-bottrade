@@ -1,0 +1,64 @@
+{
+  "symbol": "EURUSDm",
+  "timeframe": "M15",
+  "n_features": 50,
+  "n_samples": 9995,
+  "trained_at": "2026-06-12T23:20:40.967068+00:00",
+  "model_path": "C:\\Users\\netro\\Desktop\\Goldman_Bot\\models\\saved\\xgb_EURUSDm.pkl",
+  "is_acceptable": "False",
+  "mean_accuracy": 0.6279,
+  "mean_f1": 0.3809,
+  "std_accuracy": 0.0174,
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2026-01-19 \u2192 2026-02-11",
+      "test_period": "2026-02-12 \u2192 2026-03-09",
+      "accuracy": 0.6078,
+      "f1_macro": 0.3612,
+      "buy_precision": 0.1282,
+      "buy_recall": 0.0521,
+      "n_trades": 78
+    },
+    {
+      "fold": 2,
+      "train_period": "2026-01-19 \u2192 2026-03-06",
+      "test_period": "2026-03-09 \u2192 2026-04-01",
+      "accuracy": 0.6138,
+      "f1_macro": 0.43,
+      "buy_precision": 0.2676,
+      "buy_recall": 0.1792,
+      "n_trades": 142
+    },
+    {
+      "fold": 3,
+      "train_period": "2026-01-19 \u2192 2026-03-31",
+      "test_period": "2026-04-01 \u2192 2026-04-27",
+      "accuracy": 0.6577,
+      "f1_macro": 0.3839,
+      "buy_precision": 0.45,
+      "buy_recall": 0.0404,
+      "n_trades": 20
+    },
+    {
+      "fold": 4,
+      "train_period": "2026-01-19 \u2192 2026-04-24",
+      "test_period": "2026-04-27 \u2192 2026-05-20",
+      "accuracy": 0.633,
+      "f1_macro": 0.3207,
+      "buy_precision": 0.6667,
+      "buy_recall": 0.0201,
+      "n_trades": 6
+    },
+    {
+      "fold": 5,
+      "train_period": "2026-01-19 \u2192 2026-05-19",
+      "test_period": "2026-05-20 \u2192 2026-06-12",
+      "accuracy": 0.627,
+      "f1_macro": 0.4085,
+      "buy_precision": 0.5667,
+      "buy_recall": 0.078,
+      "n_trades": 30
+    }
+  ]
+}

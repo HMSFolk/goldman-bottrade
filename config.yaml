@@ -26,10 +26,10 @@ symbols:
   # รายการ symbol ที่บอทจะเทรด
   # ⚠️  เพิ่ม/ลบที่นี่ แล้วต้อง retrain โมเดลใหม่
   active:
-    - "XAUUSD"    # ทองคำ (main)
-    - "EURUSD"    # EUR/USD
-    - "GBPUSD"    # GBP/USD
-  # - "USDJPY"   ← uncomment เมื่อพร้อม
+    - "XAUUSDm"    # ทองคำ (main)
+    - "EURUSDm"    # EUR/USD
+    - "GBPUSDm"    # GBP/USD
+  # - "USDJPYm"   ← uncomment เมื่อพร้อม
 
   # timeframe หลักที่บอทวิ่ง
   primary_timeframe: "M15"

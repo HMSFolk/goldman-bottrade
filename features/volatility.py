@@ -436,3 +436,4 @@ def _add_volatility_composite(df: pd.DataFrame) -> pd.DataFrame:
 
     df['vol_trade_quality'] = score
     # >= 3 = เงื่อนไข volatility เหมาะสมสำหรับเทรด
+    return df

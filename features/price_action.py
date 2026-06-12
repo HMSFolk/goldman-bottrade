@@ -604,3 +604,5 @@ def _add_pa_composite(df: pd.DataFrame) -> pd.DataFrame:
         score += (df['close_position'] - 0.5) * 0.5
 
     df['pa_score'] = score.clip(-5, 5)
+    
+    return df

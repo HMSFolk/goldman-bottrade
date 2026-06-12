@@ -659,7 +659,7 @@ def _save_report(result: LGBMTrainResult, symbol: str, timeframe: str):
         ],
     }
     out = REPORTS_DIR / f"train_report_lgbm_{symbol}_{timeframe}.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out.write_text(json.dumps(report, indent=2 ,default=str), encoding="utf-8")
     log.info(f"📄 บันทึก report → {out}")
 
 
