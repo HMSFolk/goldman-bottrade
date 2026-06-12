@@ -15,9 +15,9 @@
 #Requires -RunAsAdministrator
 
 param(
-    [string]$InstallDir = "C:\trading-bot",
+    [string]$InstallDir = "C:\Goldman-Bot",
     [string]$PythonExe  = "C:\Python313\python.exe",   # ✅ แก้เป็น 313
-    [string]$LogDir     = "C:\trading-bot\logs",
+    [string]$LogDir     = "C:\Goldman-Bot\logs",
     [switch]$RemoveAll  = $false,   # ลบ tasks เก่าก่อนสร้างใหม่
     [switch]$ListOnly   = $false,   # แค่แสดง tasks ไม่สร้าง
 )

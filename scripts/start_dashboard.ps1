@@ -15,7 +15,7 @@
 #Requires -RunAsAdministrator
 
 param(
-    [string]$InstallDir    = "C:\trading-bot",
+    [string]$InstallDir    = "C:\Goldman-Bot",
     [string]$PythonExe     = "C:\Python313\python.exe",   # ✅ แก้เป็น 313
     [string]$NSSMExe       = "C:\Windows\System32\nssm.exe",
     [int]   $Port          = 8501,

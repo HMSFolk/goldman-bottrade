@@ -3,7 +3,7 @@
 
 param(
     [string]$GitRepo    = "https://github.com/HMSFolk/goldman-bottrade.git",
-    [string]$InstallDir = "C:\goldman-bot",
+    [string]$InstallDir = "C:\Goldman-Bot",
     [string]$PythonVer  = "3.13.2",  # ✅ อัปเดตเป็น Python 3.13
     [switch]$SkipMT5    = $false,
     [switch]$SkipGit    = $false

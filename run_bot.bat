@@ -20,8 +20,8 @@ title AURUM BOT — Manual Runner
 color 0A
 
 :: ── Paths ──────────────────────────────────────────────────
-set PYTHON=C:\Python313\python.exe
-set WORKDIR=C:\trading-bot
+set PYTHON=%WORKDIR%\.venv\Scripts\python.exe
+set WORKDIR=%cd%
 set LOGDIR=%WORKDIR%\logs
 
 :: ── Go to project root ─────────────────────────────────────
