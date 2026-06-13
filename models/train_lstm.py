@@ -269,8 +269,7 @@ class LSTMAttentionTrader(nn.Module):
         return logits
 
     def get_attention_weights(
-        self, x: torch.Tensor
-    ) -> np.ndarray:
+        self, x: torch.Tensor) -> np.ndarray:
         """ดู attention weights — bar ไหนสำคัญที่สุด"""
         self.eval()
         with torch.no_grad():
@@ -312,15 +311,20 @@ class TradingSequenceDataset(Dataset):
             )
 
     def __len__(self) -> int:
-        return self.n
+        min_len = min(len(self.X), len(self.y))
+        self.X = self.X[:min_len]
+        self.y = self.y[:min_len]
+        self.n = min_len
+        return len(self.y) - self.seq_len
 
     def __getitem__(self, idx: int):
-        # sequence: bars ตั้งแต่ idx ถึง idx+seq_len
-        # label: label ของ bar idx+seq_len (bar สุดท้ายใน sequence)
+        # --- ระบบเบรกฉุกเฉิน ป้องกันการตกขอบทุกกรณี ---
+        max_idx = min(len(self.X), len(self.y)) - self.seq_len - 1
+        if idx > max_idx:
+            idx = max(0, max_idx)
         x_seq = self.X[idx : idx + self.seq_len]   # (seq_len, features)
         label = self.y[idx + self.seq_len]          # scalar
         return x_seq, label
-
 
 def make_weighted_sampler(y: np.ndarray) -> WeightedRandomSampler:
     """
@@ -339,7 +343,6 @@ def make_weighted_sampler(y: np.ndarray) -> WeightedRandomSampler:
         num_samples = len(y),
         replacement = True,   # sample ซ้ำได้
     )
-
 
 # ══════════════════════════════════════════════════════════════
 # Data Preparation
@@ -692,6 +695,11 @@ def train_lstm(
 
     # ── Walk-Forward ───────────────────────────────────────────
     gap_bars   = CFG['training']['wf_gap_bars']
+    
+    min_len = min(len(X), len(y))
+    X = X[:min_len]
+    y = y[:min_len]
+
     model, scaler, fold_results = walk_forward_train(
         X, y, feature_cols,
         seq_len     = seq_len,
