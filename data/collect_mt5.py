@@ -98,7 +98,7 @@ def collect_mt5_data(
 
     finally:
         # ✅ FIX BUG-8: shutdown เสมอ ไม่ว่าจะ exception หรือไม่
-        mt5.shutdown()
+        #mt5.shutdown()
         log.debug("MT5 shutdown complete")
 
     return collected
