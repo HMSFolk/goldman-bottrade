@@ -16,12 +16,12 @@
 
 param(
     [string]$InstallDir    = "C:\Goldman-Bot",
-    [string]$PythonExe     = "C:\Python313\python.exe",   # ✅ แก้เป็น 313
+    [string]$PythonExe     = "C:\Python313\python.exe",
     [string]$NSSMExe       = "C:\Windows\System32\nssm.exe",
     [int]   $Port          = 8501,
-    [string]$BindAddress   = "0.0.0.0",   # เข้าจาก internet ได้
-    [switch]$LocalOnly     = $false,       # เข้าได้แค่ localhost
-    [switch]$Restart       = $false,       # restart service ถ้ามีอยู่แล้ว
+    [string]$BindAddress   = "0.0.0.0",
+    [switch]$LocalOnly     = $false,
+    [switch]$Restart       = $false   # ✅ FIX CRITICAL: ลบ trailing comma
 )
 
 Set-StrictMode -Version Latest
@@ -148,9 +148,9 @@ $portUsed = Get-NetTCPConnection -LocalPort $Port `
             -State Listen `
             -ErrorAction SilentlyContinue
 if ($portUsed) {
-    $pid   = $portUsed[0].OwningProcess
-    $pname = (Get-Process -Id $pid -ErrorAction SilentlyContinue).ProcessName
-    Write-Warn "Port $Port ถูกใช้อยู่โดย: $pname (PID=$pid)"
+    $procId = $portUsed[0].OwningProcess   # ✅ FIX HIGH: $pid เป็น automatic var ใน PowerShell
+    $pname  = (Get-Process -Id $procId -ErrorAction SilentlyContinue).ProcessName
+    Write-Warn "Port $Port ถูกใช้อยู่โดย: $pname (PID=$procId)"
     Write-Warn "จะ restart service เพื่อเข้าครอบครอง port"
     $Restart = $true
 }

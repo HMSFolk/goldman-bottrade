@@ -33,8 +33,12 @@ def retrain_all(
     skip_bt:   bool  = False,   # ข้าม backtest
 ) -> dict:
 
-    symbols   = symbols   or CFG['symbols']['active']
-    timeframe = timeframe or CFG['symbols']['primary_timeframe']
+    # ✅ FIX: config key ผิด — ใช้ CFG['trading']['symbols'] ตรงกับ config.yaml จริง
+    # CFG['symbols']['active'] ไม่มี key นี้ → KeyError crash ทันที
+    symbols   = symbols   or CFG.get('trading', {}).get('symbols',
+                             CFG.get('symbols', {}).get('active', []))
+    timeframe = timeframe or CFG.get('trading', {}).get('timeframe',
+                             CFG.get('symbols', {}).get('primary_timeframe', 'M15'))
     results   = {}
     t_start   = time.time()
 

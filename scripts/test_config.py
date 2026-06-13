@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 import MetaTrader5 as mt5
 from config import get_config
 
-cfg = get_config()
+# ✅ FIX: ลบ cfg = get_config() บรรทัดแรกออก — มันถูก overwrite ทันที
+# และใช้ get_config() เฉพาะตอน connect MT5 แทน (ใช้ค่าจาก .env อย่างถูกต้อง)
 load_dotenv()
 
 # 1. ตรวจ config.yaml
@@ -23,14 +24,13 @@ for key in required_env:
     else:
         print(f"✅ .env {key}: {'*'*8}")
 
-# 3. ตรวจ MT5
+# 3. ตรวจ MT5 — ✅ FIX: ใช้ค่าจาก .env โดยตรง (ไม่ต้อง cfg['mt5'] ซึ่งอาจไม่มี key นี้)
 if mt5.initialize():
     ok = mt5.login(
-        cfg['mt5']['login'],
-        password=cfg['mt5']['password'],
-        server=cfg['mt5']['server']
+        int(os.getenv('MT5_LOGIN', '0')),
+        password=os.getenv('MT5_PASSWORD', ''),
+        server=os.getenv('MT5_SERVER', '')
     )
-    
     if ok:
         acc = mt5.account_info()
         print(f"✅ MT5 connected: {acc.name} ${acc.balance:,.2f}")

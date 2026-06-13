@@ -768,7 +768,7 @@ def _save_checklist(results: dict, symbol: str):
         timezone.utc
     ).isoformat()
     out.write_text(
-        json.dumps(serializable, indent=2),
+        json.dumps(serializable, indent=2,default=str),
         encoding="utf-8",
     )
 

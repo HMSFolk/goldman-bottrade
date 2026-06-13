@@ -1,9 +1,6 @@
 # ============================================================
 # TRADING BOT — MASTER CONFIG  (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
-#
-# ⚠️  Credentials (MT5_LOGIN, MT5_PASSWORD, TELEGRAM_TOKEN ฯลฯ)
-#     อยู่ใน .env เท่านั้น — ห้ามใส่ที่นี่
 # ============================================================
 
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
@@ -135,7 +132,7 @@ session:
 
   # วันหยุดตลาด — ไม่เทรด (อัปเดตทุกปี)
   market_holidays:
-    - "2025-12-25"   # Christmas
+    - "2026-12-25"   # Christmas
     - "2026-01-01"   # New Year
     - "2026-12-25"   # Christmas 2026
 

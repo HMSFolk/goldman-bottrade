@@ -16,10 +16,10 @@
 
 param(
     [string]$InstallDir = "C:\Goldman-Bot",
-    [string]$PythonExe  = "C:\Python313\python.exe",   # ✅ แก้เป็น 313
+    [string]$PythonExe  = "C:\Python313\python.exe",
     [string]$LogDir     = "C:\Goldman-Bot\logs",
-    [switch]$RemoveAll  = $false,   # ลบ tasks เก่าก่อนสร้างใหม่
-    [switch]$ListOnly   = $false,   # แค่แสดง tasks ไม่สร้าง
+    [switch]$RemoveAll  = $false,
+    [switch]$ListOnly   = $false   # ✅ FIX CRITICAL: ลบ trailing comma
 )
 
 Set-StrictMode -Version Latest

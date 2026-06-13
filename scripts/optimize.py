@@ -8,6 +8,17 @@ from xgboost import XGBClassifier
 def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 100):
     df = pd.read_parquet(f"data/processed/{symbol}_M15_features.parquet")
 
+    # ✅ FIX: คำนวณ label mapping 1 ครั้ง ก่อน objective loop
+    # LabelEncoder(sort([-1,0,1])): SELL(-1)→0  HOLD(0)→1  BUY(1)→2
+    label_vals = sorted(df['label'].unique())
+    BUY_LABEL  = label_vals[-1]   # ค่าสูงสุด = BUY
+    SELL_LABEL = label_vals[0]    # ค่าต่ำสุด = SELL
+    print(f"Label mapping → BUY={BUY_LABEL}, SELL={SELL_LABEL}")
+
+    SKIP  = {'open','high','low','close','label',
+             'tick_volume','spread','real_volume'}
+    FEATS = [c for c in df.columns if c not in SKIP]
+
     def objective(trial):
         params = {
             'n_estimators'    : trial.suggest_int('n_estimators', 100, 800),
@@ -22,10 +33,7 @@ def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 100):
         if tp < sl * 1.2:
             return -999
 
-        FEATS = [c for c in df.columns if c not in
-                 ['open','high','low','close','label',
-                  'tick_volume','spread','real_volume']]
-
+        # ✅ FIX: ลบ FEATS redefine ซ้ำออก — ใช้ตัวที่ define ด้านนอก objective แล้ว
         split     = int(len(df) * 0.7)
         X_tr      = df[FEATS].iloc[:split]
         y_tr      = df['label'].iloc[:split]
@@ -36,8 +44,9 @@ def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 100):
         model.fit(X_tr, y_tr)
         preds = model.predict(X_te)
 
-        entries = pd.Series(preds ==  1, index=price_te.index)
-        exits   = pd.Series(preds == -1, index=price_te.index)
+        # ✅ FIX: ใช้ BUY_LABEL/SELL_LABEL แทน 1/-1
+        entries = pd.Series(preds == BUY_LABEL,  index=price_te.index)
+        exits   = pd.Series(preds == SELL_LABEL, index=price_te.index)
 
         if entries.sum() < 10:
             return -999

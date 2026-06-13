@@ -2,8 +2,8 @@
 # Requires -RunAsAdministrator
 
 param(
-    [string]$InstallDir  = "C:\Goldman_Bot",
-    [string]$PythonExe   = "C:\Python313\python.exe", # ✅ แก้พาธเป็น 313
+    [string]$InstallDir  = "C:\Goldman-Bot",  
+    [string]$PythonExe   = "C:\Python313\python.exe",
     [string]$NSSMExe     = "C:\Windows\System32\nssm.exe",
     [switch]$RemoveFirst = $false,
     [switch]$SkipTelegram= $false

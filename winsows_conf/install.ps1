@@ -125,7 +125,20 @@ Write-Step "Step 9/10: Folders & Env"
 $folders = @("$InstallDir\data\raw", "$InstallDir\data\processed", "$InstallDir\models\saved", "$InstallDir\logs\daily", "$InstallDir\db", "$InstallDir\reports")
 foreach ($f in $folders) { New-Item -ItemType Directory -Path $f -Force | Out-Null }
 if (-not (Test-Path "$InstallDir\.env")) {
-    "MT5_LOGIN=0`nMT5_PASSWORD=`nMT5_SERVER=" | Out-File "$InstallDir\.env" -Encoding UTF8
+    @"
+# MT5 Credentials
+MT5_LOGIN=0
+MT5_PASSWORD=
+MT5_SERVER=
+MT5_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
+
+# Telegram Bot
+TELEGRAM_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# Environment
+BOT_ENV=production
+"@ | Out-File "$InstallDir\.env" -Encoding UTF8
 }
 
 Write-Step "Step 10/10: Firewall & Timezone"
