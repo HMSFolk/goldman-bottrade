@@ -59,6 +59,34 @@ NON_FEATURE_COLS = {
     'label', 'future_return',
 }
 
+# ── Categorical Encoder ────────────────────────────────────────
+# columns เหล่านี้ถูกสร้างเป็น string → ต้อง encode เป็น int ก่อนส่ง model
+_CAT_COLS = [
+    'trend_cat',
+    'rsi_zone',
+    'vol_regime',
+    'nearest_pivot_level',
+    'price_zone_20',
+]
+
+def _encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    สร้าง *_enc columns จาก categorical string columns
+    เรียกใน build_features() และ build_features_live()
+    เพื่อให้ train และ predict ใช้ features เดียวกันเสมอ
+    """
+    from sklearn.preprocessing import LabelEncoder
+    import numpy as np
+
+    for col in _CAT_COLS:
+        enc_col = f"{col}_enc"
+        if col in df.columns and enc_col not in df.columns:
+            le = LabelEncoder()
+            df[enc_col] = le.fit_transform(
+                df[col].fillna('UNKNOWN').astype(str)
+            ).astype(np.int32)
+    return df
+
 
 # ── Loader ────────────────────────────────────────────────────
 def load_raw(symbol: str, timeframe: str) -> pd.DataFrame:
@@ -191,6 +219,10 @@ def build_features(
         except Exception as e:
             log.warning(f"  MTF features ข้ามไป: {e}")
 
+    # ── Label Encode categoricals ──────────────────────────────
+    # ✅ แก้ feature mismatch: สร้าง *_enc columns ให้ตรงกับตอน train เสมอ
+    df = _encode_categoricals(df)
+
     # ── Target Label (เฉพาะตอน train) ───────────────────────
     if not for_live:
         # ✅ FIX BUG-4: ส่ง label_method จาก config (triple_barrier) ไม่ใช่ default "simple"
@@ -316,6 +348,10 @@ def build_features_live(
 
     if htf_dfs:
         df = add_mtf_features(df, htf_dfs, {})
+
+    # ── Label Encode categoricals ──────────────────────────────
+    # ✅ ต้องเรียกในที่นี้ด้วย ไม่งั้น live predict ไม่มี _enc columns
+    df = _encode_categoricals(df)
 
     return df
 
