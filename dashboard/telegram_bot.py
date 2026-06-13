@@ -34,6 +34,7 @@ import logging
 import json
 import sqlite3
 import asyncio
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -52,6 +53,28 @@ from config import get_config
 CFG = get_config()
 
 log = logging.getLogger("dashboard.telegram_bot")
+
+# ── Bot start time (for /uptime) ─────────────────────────────
+_BOT_START_TIME = datetime.now(timezone.utc)
+
+# ── Trading wisdom quotes (for /quote) ───────────────────────
+_QUOTES = [
+    ("The trend is your friend.",                                           "Jesse Livermore"),
+    ("Cut your losses, let your profits run.",                              "David Ricardo"),
+    ("Risk management is the only thing that matters.",                     "Paul Tudor Jones"),
+    ("The market can stay irrational longer than you can stay solvent.",    "Keynes"),
+    ("Plan the trade, trade the plan.",                                     "Wall St. wisdom"),
+    ("In the short run, the market is a voting machine. In the long run, a weighing machine.", "Benjamin Graham"),
+    ("The goal of a successful trader is to make the best trades, not to be right.", "Mark Douglas"),
+    ("Markets are never wrong — opinions often are.",                       "Jesse Livermore"),
+    ("Rule No.1: Never lose money. Rule No.2: Never forget Rule No.1.",    "Warren Buffett"),
+    ("Amateurs think about how much they can make. Pros think about how much they can lose.", "Larry Hite"),
+    ("Trade what you see, not what you think.",                             "Unknown"),
+    ("Be fearful when others are greedy, and greedy when others are fearful.", "Warren Buffett"),
+    ("Patience is the most important skill in trading.",                    "Unknown"),
+    ("The biggest risk is not taking any risk.",                            "Mark Zuckerberg"),
+    ("Every battle is won before it is fought.",                            "Sun Tzu"),
+]
 
 # ✅ FIX CRITICAL-3: absolute paths จาก project root
 DB_PATH      = _ROOT / CFG['paths']['db']
@@ -184,6 +207,17 @@ def _pnl_summary(days_back: int) -> dict:
         'wins'   : row[2] or 0,
         'losses' : row[3] or 0,
     }
+
+
+def _current_sessions() -> list:
+    """ตรวจว่าตอนนี้ session ไหนเปิดอยู่ (UTC)"""
+    hour = datetime.now(timezone.utc).hour
+    active = []
+    if hour >= 21 or hour < 6:   active.append("🦘 Sydney")
+    if 0  <= hour < 9:            active.append("🗼 Tokyo")
+    if 7  <= hour < 16:           active.append("🎡 London")
+    if 12 <= hour < 21:           active.append("🗽 New York")
+    return active if active else ["😴 Off hours"]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -672,16 +706,266 @@ async def cmd_help(
         f"  /positions → open positions\n"
         f"  /trades N  → N trades ล่าสุด\n"
         f"  /pnl       → P&L วัน/สัปดาห์/เดือน\n"
-        f"  /risk      → risk settings\n\n"
+        f"  /risk      → risk settings\n"
+        f"  /dd        → drawdown ปัจจุบัน\n\n"
+        f"*ตลาด:*\n"
+        f"  /gold      → ราคาทอง real-time\n"
+        f"  /spread    → spread ทุก symbol\n"
+        f"  /session   → session ที่เปิดอยู่\n\n"
         f"*ควบคุม:*\n"
         f"  /pause     → หยุดเทรดชั่วคราว\n"
         f"  /resume    → เปิดเทรดต่อ\n"
         f"  /closeall  → ปิดทุก position\n\n"
-        f"*อื่นๆ:*\n"
+        f"*เบ็ดเตล็ด:*\n"
+        f"  /ping      → ตรวจ bot alive + latency\n"
+        f"  /uptime    → bot รันมานานแค่ไหน\n"
+        f"  /quote     → trading wisdom\n"
+        f"  /flip      → AI signal 🎲\n"
         f"  /help      → แสดง menu นี้\n\n"
         f"⚠️ คำสั่งทำงานเฉพาะ chat นี้เท่านั้น",
         parse_mode="Markdown",
     )
+
+# ── /ping ─────────────────────────────────────────────────────
+async def cmd_ping(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """ตรวจว่า bot ยังมีชีวิตอยู่ + latency"""
+    if not _authorized(update):
+        return
+    t_recv      = datetime.now(timezone.utc)
+    latency_ms  = int((t_recv - update.message.date.replace(tzinfo=timezone.utc)).total_seconds() * 1000)
+    sessions    = _current_sessions()
+    paused_text = "⏸ PAUSED" if _is_paused() else "▶️ RUNNING"
+
+    await update.message.reply_text(
+        f"🏓 *Pong!*\n\n"
+        f"Latency:  `{latency_ms} ms`\n"
+        f"Session:  `{' + '.join(sessions)}`\n"
+        f"Bot:      `{paused_text}`\n"
+        f"⏰ `{_now_str()}`",
+        parse_mode="Markdown",
+    )
+
+
+# ── /uptime ───────────────────────────────────────────────────
+async def cmd_uptime(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Bot process ทำงานมานานแค่ไหนแล้ว"""
+    if not _authorized(update):
+        return
+    delta   = datetime.now(timezone.utc) - _BOT_START_TIME
+    days    = delta.days
+    hours   = delta.seconds // 3600
+    minutes = (delta.seconds % 3600) // 60
+    seconds = delta.seconds % 60
+    started = _BOT_START_TIME.strftime("%Y-%m-%d %H:%M UTC")
+
+    await update.message.reply_text(
+        f"⏱ *Bot Uptime*\n\n"
+        f"Running: `{days}d {hours:02d}h {minutes:02d}m {seconds:02d}s`\n"
+        f"Started: `{started}`\n"
+        f"⏰ `{_now_str()}`",
+        parse_mode="Markdown",
+    )
+
+
+# ── /gold ─────────────────────────────────────────────────────
+async def cmd_gold(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """ราคาทองแบบ real-time จาก MT5"""
+    if not _authorized(update):
+        return
+    try:
+        import MetaTrader5 as mt5
+        tick = mt5.symbol_info_tick("XAUUSDm")
+        if tick is None:
+            raise ValueError("XAUUSDm tick not available")
+
+        spread_usd  = round(tick.ask - tick.bid, 2)
+        mid         = (tick.bid + tick.ask) / 2
+
+        await update.message.reply_text(
+            f"💛 *XAU/USD (Gold)*\n\n"
+            f"Bid:    `${tick.bid:,.2f}`\n"
+            f"Ask:    `${tick.ask:,.2f}`\n"
+            f"Mid:    `${mid:,.2f}`\n"
+            f"Spread: `${spread_usd:.2f}`\n"
+            f"⏰ `{_now_str()}`",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ ดึงราคาไม่ได้\n`{str(e)[:120]}`\n"
+            f"_(MT5 ต้องเชื่อมต่ออยู่)_",
+            parse_mode="Markdown",
+        )
+
+
+# ── /spread ───────────────────────────────────────────────────
+async def cmd_spread(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Spread ปัจจุบันของทุก symbol"""
+    if not _authorized(update):
+        return
+    symbols = CFG.get('trading', {}).get('symbols', ['XAUUSDm'])
+    try:
+        import MetaTrader5 as mt5
+        lines = ["📊 *Current Spreads*\n"]
+        for sym in symbols:
+            tick = mt5.symbol_info_tick(sym)
+            if tick:
+                spread = round(tick.ask - tick.bid, 5)
+                lines.append(f"  `{sym:<10}` spread = `{spread:.5f}`")
+            else:
+                lines.append(f"  `{sym:<10}` — N/A")
+        lines.append(f"\n⏰ `{_now_str()}`")
+        await update.message.reply_text(
+            "\n".join(lines), parse_mode="Markdown"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ ดึง spread ไม่ได้\n`{str(e)[:120]}`",
+            parse_mode="Markdown",
+        )
+
+
+# ── /dd ───────────────────────────────────────────────────────
+async def cmd_dd(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Drawdown ปัจจุบัน + เทียบ daily limit"""
+    if not _authorized(update):
+        return
+    acc     = _load_account()
+    balance = acc.get('balance', 0)
+    equity  = acc.get('equity',  0)
+
+    if balance <= 0:
+        await update.message.reply_text("❌ ไม่พบข้อมูล account (bot อาจยังไม่ได้รัน)")
+        return
+
+    floating_dd = max(0.0, balance - equity)
+    dd_pct      = (floating_dd / balance * 100) if balance > 0 else 0
+    today_pnl   = _pnl_summary(days_back=1)['pnl']
+    limit_pct   = CFG.get('risk', {}).get('max_daily_loss_pct', 0.05) * 100
+
+    if dd_pct >= limit_pct:      dd_icon = "🔴"
+    elif dd_pct >= limit_pct / 2: dd_icon = "🟡"
+    else:                          dd_icon = "🟢"
+
+    status = "⚠️ WARNING — ใกล้ถึง limit!" if dd_pct >= limit_pct * 0.8 else "✅ OK"
+
+    await update.message.reply_text(
+        f"{dd_icon} *Drawdown Report*\n\n"
+        f"Balance:         `${balance:,.2f}`\n"
+        f"Equity:          `${equity:,.2f}`\n"
+        f"Floating DD:     `${floating_dd:,.2f}` ({dd_pct:.1f}%)\n"
+        f"Today P&L:       `${today_pnl:+.2f}`\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Daily DD Limit:  `{limit_pct:.0f}%`\n"
+        f"Status:          `{status}`\n"
+        f"⏰ `{_now_str()}`",
+        parse_mode="Markdown",
+    )
+
+
+# ── /session ──────────────────────────────────────────────────
+async def cmd_session(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Session ตลาดที่เปิดอยู่ตอนนี้"""
+    if not _authorized(update):
+        return
+    hour = datetime.now(timezone.utc).hour
+
+    # (name, emoji, open_utc, close_utc, top_pairs)
+    sessions_def = [
+        ("Sydney",   "🦘", 21,  6,  "AUD NZD"),
+        ("Tokyo",    "🗼",  0,  9,  "JPY AUD CHF"),
+        ("London",   "🎡",  7, 16,  "EUR GBP Gold"),
+        ("New York", "🗽", 12, 21,  "USD Gold"),
+    ]
+
+    lines = ["🌍 *Market Sessions (UTC)*\n"]
+    for name, flag, start, end, pairs in sessions_def:
+        is_open = (hour >= start or hour < end) if start > end else (start <= hour < end)
+        status  = "🟢 OPEN " if is_open else "⚫ closed"
+        lines.append(f"  {flag} *{name}*  {status}")
+        lines.append(f"     {start:02d}:00–{end:02d}:00 | {pairs}")
+
+    # London-NY overlap (best liquidity for Gold)
+    if 12 <= hour < 16:
+        lines.append(f"\n⚡ *London + NY Overlap* — liquidity สูงสุด (Gold ชอบช่วงนี้)")
+    elif 7 <= hour < 9:
+        lines.append(f"\n⚡ *Tokyo + London Overlap*")
+
+    lines.append(f"\n⏰ `{_now_str()}`")
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode="Markdown"
+    )
+
+
+# ── /quote ────────────────────────────────────────────────────
+async def cmd_quote(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """สุ่ม trading wisdom quote"""
+    if not _authorized(update):
+        return
+    text, author = random.choice(_QUOTES)
+    await update.message.reply_text(
+        f"💭 *Trading Wisdom*\n\n"
+        f"_{text}_\n\n"
+        f"— {author}",
+        parse_mode="Markdown",
+    )
+
+
+# ── /flip ─────────────────────────────────────────────────────
+async def cmd_flip(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """AI coin flip BUY/SELL (เพื่อความสนุก เท่านั้น)"""
+    if not _authorized(update):
+        return
+    result     = random.choice(["BUY  📈", "SELL 📉"])
+    confidence = random.randint(51, 99)
+    reasons    = [
+        "RSI divergence ชัดมาก",
+        "MACD crossover",
+        "Price action เด่นมาก",
+        "Volume spike ผิดปกติ",
+        "Fibonacci 61.8% retest",
+        "Moving average crossover",
+        "Bollinger Band squeeze",
+        "Order block พอดีเป๊ะ",
+        "เห็นในฝัน",
+        "ตับบอก",
+    ]
+    reason = random.choice(reasons)
+
+    await update.message.reply_text(
+        f"🪙 *AI Signal Generator™*\n\n"
+        f"Signal:     `{result}`\n"
+        f"Confidence: `{confidence}%`\n"
+        f"Reason:     _{reason}_\n\n"
+        f"⚠️ _สัญญาณนี้ไม่มีความหมายทางการเงินใดๆ_\n"
+        f"_เป็นแค่ coin flip เพื่อความสนุก_ 🎲",
+        parse_mode="Markdown",
+    )
+
 
 # ── Unknown command ───────────────────────────────────────────
 async def cmd_unknown(
@@ -728,6 +1012,16 @@ def run_telegram_bot():
         ("trades",       cmd_trades),
         ("balance",      cmd_balance),
         ("risk",         cmd_risk),
+        # ── ใหม่ ─────────────────────────────────
+        ("ping",         cmd_ping),
+        ("uptime",       cmd_uptime),
+        ("gold",         cmd_gold),
+        ("spread",       cmd_spread),
+        ("dd",           cmd_dd),
+        ("session",      cmd_session),
+        ("quote",        cmd_quote),
+        ("flip",         cmd_flip),
+        # ─────────────────────────────────────────
         ("help",         cmd_help),
     ]
 
@@ -748,9 +1042,17 @@ def run_telegram_bot():
             BotCommand("trades",    "Trades ล่าสุด"),
             BotCommand("pnl",       "P&L วัน/สัปดาห์/เดือน"),
             BotCommand("risk",      "Risk settings"),
+            BotCommand("dd",        "Drawdown ปัจจุบัน"),
+            BotCommand("gold",      "ราคาทอง real-time"),
+            BotCommand("spread",    "Spread ทุก symbol"),
+            BotCommand("session",   "Session ตลาดที่เปิดอยู่"),
             BotCommand("pause",     "หยุดเทรดชั่วคราว"),
             BotCommand("resume",    "เปิดเทรดต่อ"),
             BotCommand("closeall",  "ปิดทุก position"),
+            BotCommand("ping",      "ตรวจ bot alive + latency"),
+            BotCommand("uptime",    "Bot รันมานานแค่ไหน"),
+            BotCommand("quote",     "Trading wisdom"),
+            BotCommand("flip",      "AI signal (เล่นๆ)"),
             BotCommand("help",      "รายการคำสั่ง"),
         ])
 
