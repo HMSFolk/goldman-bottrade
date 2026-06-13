@@ -1,6 +1,5 @@
 # bot/main.py
 """
-Trading Bot — Main Loop
 ════════════════════════════════════════════════════════════
 รันเป็น Windows Service ด้วย NSSM
 ทำงานทุก 15 นาที: ราคา → features → predict → order
@@ -14,7 +13,6 @@ Startup sequence:
   6. run forever
 ════════════════════════════════════════════════════════════
 """
-
 import logging
 import time
 import signal
@@ -22,6 +20,7 @@ import sys
 import traceback
 from pathlib import Path
 from datetime import datetime, timezone
+from data.news_filter import NewsFilter
 
 import schedule
 import MetaTrader5 as mt5
@@ -66,11 +65,12 @@ class BotState:
         self.config_mtime   = Path("config.yaml").stat().st_mtime
 
         # Components (init ใน startup())
-        self.client   : MT5Client     = None
-        self.risk     : RiskManager   = None
-        self.executor : OrderExecutor = None
-        self.writer   : MetricsWriter = None
-        self.strategy                 = None
+        self.client      : MT5Client     = None
+        self.risk        : RiskManager   = None
+        self.executor    : OrderExecutor = None
+        self.writer      : MetricsWriter = None
+        self.strategy                    = None
+        self.news_filter : NewsFilter    = NewsFilter()   # ✅ จุดที่ 2
 
         # Cooldown tracking
         # ป้องกันเทรดซ้ำ symbol เดียวกันถี่เกินไป
@@ -92,10 +92,8 @@ class BotState:
             self.symbol_errors[symbol] = \
                 self.symbol_errors.get(symbol, 0) + 1
 
-
 # Singleton state
 STATE = BotState()
-
 
 # ══════════════════════════════════════════════════════════════
 # Startup
@@ -207,6 +205,12 @@ def run_tick(symbol: str):
         # ── 1. ตรวจ pause flag ────────────────────────────────
         if STATE.is_paused():
             log.info(f"⏸ Bot paused — skip {symbol}")
+            return
+
+        # ── 1.5 News Window Check ─────────────────────────────
+        # ✅ จุดที่ 3: ข้ามการเทรดช่วง high-impact news
+        if STATE.news_filter.is_news_window(symbol=symbol):
+            log.info(f"⚠️  {symbol}: news window — skip")
             return
 
         # ── 2. ตรวจ daily loss limit ──────────────────────────
@@ -560,7 +564,6 @@ def main():
 # ── Helpers ────────────────────────────────────────────────────
 def _now_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
 
 if __name__ == "__main__":
     main()

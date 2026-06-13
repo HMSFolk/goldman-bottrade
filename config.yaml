@@ -250,3 +250,16 @@ logging:
   level: "INFO"           # DEBUG | INFO | WARNING | ERROR
   max_file_size_mb: 10
   backup_count: 5         # เก็บ log ย้อนหลัง 5 ไฟล์
+
+# ── 13.News Filter ───────────────────────────────────────────────
+news_filter:
+  enabled: true
+  buffer_minutes: 30        # บล็อก 30 นาทีก่อน/หลังข่าว
+  high_impact_only: true    # เฉพาะ High impact เท่านั้น
+  fail_open: true           # true = ให้เทรดต่อถ้า API ล้มเหลว
+  cache_hours: 6            # refresh ทุก 6 ชั่วโมง
+  keywords: []              # เพิ่ม keywords พิเศษถ้าต้องการ
+
+# ── 14.API Keys ──────────────────────────────────────────────────
+api_keys:
+  finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0" # ใส่ key ถ้ามี (free ที่ finnhub.io)
