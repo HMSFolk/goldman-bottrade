@@ -38,7 +38,7 @@ def load_trade_logs_json(path: str = "logs/trades.log") -> pd.DataFrame:
         return pd.DataFrame()
 
     records = []
-    with open(log_file, encoding="utf-8") as f:
+    with open(log_file,"r", encoding="utf-8") as f:
         for line in f:
             try:
                 records.append(json.loads(line.strip()))

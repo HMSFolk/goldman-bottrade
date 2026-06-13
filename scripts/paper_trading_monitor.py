@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import yaml
 
-with open("config.yaml") as f:
+with open("config.yaml","r", encoding="utf-8") as f:
     CFG = yaml.safe_load(f)
 
 DB_PATH = Path(CFG['paths']['db'])

@@ -1,8 +1,9 @@
-# backtest/walk_forward.py
+# scripts/walk_forward.py
 import pandas as pd
 import numpy as np
-import vectorbt as vbt # ✅ ใส่เพิ่ม: ของเดิมลืม import ตัวคำนวณพอร์ตมา ระบบจะแครช
+import vectorbt as vbt 
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import LabelEncoder  # ✅ ใส่เพิ่ม: เพื่อแปลงคลาส [-1, 0, 1] เป็น [0, 1, 2]
 from xgboost import XGBClassifier
 import joblib
 
@@ -13,9 +14,13 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
     """
     df = pd.read_parquet(f"data/processed/{symbol}_M15_features.parquet")
 
-    # ✅ FIX BUG-1: path ผิด — ไฟล์อยู่ใน models/saved/ ไม่ใช่ models/
+    # ✅ ล้างแถวข้อมูลที่ label เป็น NaN ทิ้ง 
+    df = df.dropna(subset=['label'])
+
+    # ✅ path ผิด — ไฟล์อยู่ใน models/saved/ ไม่ใช่ models/
     model_path = f'models/saved/xgb_{symbol}.pkl'
     model_data = joblib.load(model_path)
+    
     # handle ทั้งกรณี save เป็น dict {'model':..,'features':..} หรือ save model ตรงๆ
     if isinstance(model_data, dict):
         FEATS = model_data['features']
@@ -25,15 +30,18 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
                  'tick_volume','spread','real_volume'}
         FEATS = [c for c in df.columns if c not in SKIP]
 
-    # ✅ FIX BUG-2: label หลัง LabelEncoder ไม่ใช่ -1,0,1 อีกต่อไป!
-    # XGBoost multiclass ต้องการ 0-indexed → LabelEncoder(sort([-1,0,1])):
-    #   SELL(-1)→0  HOLD(0)→1  BUY(1)→2
-    label_vals = sorted(df['label'].unique())
-    BUY_LABEL  = label_vals[-1]   # ค่าสูงสุด = BUY (1 หรือ 2 แล้วแต่ encoding)
-    SELL_LABEL = label_vals[0]    # ค่าต่ำสุด  = SELL (-1 หรือ 0)
-    print(f"  Label mapping: BUY={BUY_LABEL} SELL={SELL_LABEL} (unique={label_vals})")
+    X = df[FEATS]
 
-    X, y = df[FEATS], df['label']
+    # ✅ FIX BUG: แปลงคลาสด้วย LabelEncoder เพื่อป้องกันปัญหาคลาสติดลบสำหรับ XGBoost
+    # ค่าเดิม [-1.0, 0.0, 1.0] จะถูกแมปใหม่เป็น [0, 1, 2] เสมอ
+    le = LabelEncoder()
+    y = pd.Series(le.fit_transform(df['label']), index=df.index)
+
+    # กำหนดตัวแปรซื้อขายจากคลาสใหม่
+    label_vals = sorted(y.unique())
+    BUY_LABEL  = label_vals[-1]   # ค่าสูงสุดคือเลข 2 (BUY)
+    SELL_LABEL = label_vals[0]    # ค่าต่ำสุดคือเลข 0 (SELL)
+    print(f"   XGBoost Optimized Mapping: BUY={BUY_LABEL} SELL={SELL_LABEL} (unique={label_vals})")
 
     tscv    = TimeSeriesSplit(n_splits=n_splits, gap=96)
     results = []
@@ -42,15 +50,17 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
         X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
         y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
 
+        # ✅ ย้าย early_stopping_rounds มาใส่ในตัวแปรต้นทาง
         model = XGBClassifier(n_estimators=300, learning_rate=0.05,
-                               max_depth=6, min_child_weight=10)
-        model.fit(X_tr, y_tr, eval_set=[(X_te, y_te)],
-                  early_stopping_rounds=30, verbose=False)
+                              max_depth=6, min_child_weight=10,
+                              early_stopping_rounds=30)
+        
+        # ✅ เอา early_stopping_rounds ออกจาก .fit()
+        model.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], verbose=False)
 
         preds = model.predict(X_te)
 
         price_test = df['close'].iloc[test_idx]
-        # ✅ FIX BUG-2: ใช้ BUY_LABEL/SELL_LABEL แทน hardcode 1/-1
         entries    = pd.Series(preds == BUY_LABEL,  index=price_test.index)
         exits      = pd.Series(preds == SELL_LABEL, index=price_test.index)
 
@@ -62,7 +72,7 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
             tp_stop   = 0.010,
             init_cash = 10_000,
             fees      = 0.0001,
-            freq      = '15min', # ✅ แก้ไขจาก '15T' เป็น '15min'
+            freq      = '15min', 
         )
         stats = pf.stats()
 
@@ -91,3 +101,13 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
     results_df.to_csv("reports/walk_forward_results.csv", index=False)
     
     return results_df
+
+if __name__ == "__main__":
+    import os
+    print("⏳ Starting Walk-Forward Out-Of-Sample Validation...")
+    os.makedirs("reports", exist_ok=True)
+    
+    try:
+        walk_forward_test(symbol="XAUUSDm", n_splits=5)
+    except Exception as e:
+        print(f"❌ รัน Walk-Forward ล้มเหลวเนื่องจาก: {e}")
