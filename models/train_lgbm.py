@@ -7,15 +7,22 @@ LightGBM Training Pipeline
 - Walk-Forward Validation เหมือน XGB
 """
 
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# ✅ FIX: setup_logging ก่อน import อื่น — แก้ "No module named 'bot'"
+from bot.setup_logging import setup_logging
+setup_logging()
+
 import logging
-import logging.config
-import yaml
 import json
 import time
 import joblib
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
@@ -28,17 +35,36 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import LabelEncoder
 
-# โหลด config
-with open("logging.yaml", encoding="utf-8") as f:
-    logging.config.dictConfig(yaml.safe_load(f))
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX: get_config() แทน yaml.safe_load โดยตรง
+from config import get_config
+CFG = get_config()
 
 log = logging.getLogger("models")
 
-PROCESSED_DIR = Path(CFG['paths']['data_processed'])
-MODELS_DIR    = Path(CFG['paths']['models_saved'])
-REPORTS_DIR   = Path("reports")
+
+# ══════════════════════════════════════════════════════════════
+# ✅ FIX BUG-1: NumpyEncoder — แก้ "Object of type bool is not JSON serializable"
+# สาเหตุ: np.mean() คืน numpy.float64, การเปรียบเทียบ numpy.float64 >= float
+#          คืน numpy.bool_ (ไม่ใช่ Python bool) ซึ่ง json.dumps() ใน Python 3.13
+#          ไม่รู้จัก — ต้องแปลงก่อน
+# ══════════════════════════════════════════════════════════════
+class NumpyEncoder(json.JSONEncoder):
+    """แปลง numpy types → Python built-in types ก่อน JSON serialize"""
+    def default(self, obj):
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+# ✅ FIX: absolute paths จาก project root
+PROCESSED_DIR = _ROOT / CFG['paths']['data_processed']
+MODELS_DIR    = _ROOT / CFG['paths']['models_saved']
+REPORTS_DIR   = _ROOT / CFG['paths']['reports']
 
 NON_FEATURE_COLS = {
     'open','high','low','close',
@@ -94,7 +120,8 @@ class LGBMTrainResult:
         return np.mean([f.best_iteration for f in self.folds])
 
     def is_acceptable(self) -> bool:
-        return (
+        # ✅ FIX: bool() บังคับแปลง numpy.bool_ → Python bool
+        return bool(
             self.mean_accuracy >= 0.50 and
             self.mean_f1       >= 0.40 and
             self.std_accuracy  <= 0.10
@@ -246,10 +273,22 @@ def walk_forward_train(
         y_te = le.transform(y.iloc[test_idx])
 
         # ── LightGBM Dataset ───────────────────────────────────
-        # categorical_feature ระบุตรงนี้ ไม่ใช่ใน params
+        # ✅ FIX BUG-2: เพิ่ม sample_weight เพื่อแก้ class imbalance
+        # BUY recall ≈ 0 เพราะ HOLD มีมากกว่า BUY/SELL มาก
+        # sample_weight ทำให้โมเดลสนใจ BUY/SELL มากขึ้น
+        class_counts = np.bincount(y_tr.astype(int))
+        total        = len(y_tr)
+        n_classes    = len(class_counts)
+        # weight แต่ละ sample = total / (n_classes * count_of_its_class)
+        weights_per_class = total / (n_classes * np.maximum(class_counts, 1))
+        # BUY class (index 2 หลัง LabelEncoder) — boost เพิ่มพิเศษ
+        weights_per_class[2] = weights_per_class[2] * 1.5   # boost BUY
+        sample_weight = weights_per_class[y_tr.astype(int)]
+
         train_ds = lgb.Dataset(
             X_tr, label=y_tr,
             categorical_feature = cat_features,
+            weight              = sample_weight,   # ✅ ใส่ weight
             free_raw_data       = False,
         )
         val_ds   = lgb.Dataset(
@@ -444,7 +483,9 @@ def _default_lgbm_params() -> dict:
         # Tree structure (Leaf-wise — ต่างจาก XGB)
         'num_leaves'         : p.get('num_leaves',       63),
         'max_depth'          : -1,          # -1 = ไม่จำกัด
-        'min_data_in_leaf'   : p.get('min_data_in_leaf', 50),
+        # ✅ FIX BUG-2: ลด min_data_in_leaf 50→20 เพื่อให้ BUY/SELL มีโอกาสสร้าง leaf ได้มากขึ้น
+        # BUY มักมี sample น้อย ถ้า min=50 โมเดลไม่ยอมแตก leaf สำหรับ BUY
+        'min_data_in_leaf'   : p.get('min_data_in_leaf', 20),
 
         # Learning
         'learning_rate'      : p.get('learning_rate',  0.03),
@@ -460,8 +501,9 @@ def _default_lgbm_params() -> dict:
         'reg_lambda'         : 1.0,         # L2
         'min_gain_to_split'  : 0.01,
 
-        # Class weight (สำคัญ — ถ้า label imbalanced)
-        'is_unbalance'       : True,        # auto weight
+        # ✅ FIX BUG-2: ปิด is_unbalance แล้วใช้ sample_weight แทน
+        # is_unbalance=True + sample_weight พร้อมกันจะขัดแย้งกัน
+        'is_unbalance'       : False,       # ใช้ sample_weight แทน (ใน Dataset)
 
         # Speed
         'num_threads'        : 4,
@@ -495,7 +537,7 @@ def _hyperopt_params(
             'bagging_freq'    : trial.suggest_int('bfreq',   1, 10),
             'reg_alpha'       : trial.suggest_float('ra', 0.0, 2.0),
             'reg_lambda'      : trial.suggest_float('rl', 0.0, 2.0),
-            'is_unbalance'    : True,
+            'is_unbalance'    : False,       # ✅ FIX: ใช้ sample_weight แทน (ไม่ conflict)
             'num_threads'     : 4,
             'force_col_wise'  : True,
         }
@@ -545,7 +587,7 @@ def _hyperopt_params(
         'bagging_freq'    : best['bfreq'],
         'reg_alpha'       : best['ra'],
         'reg_lambda'      : best['rl'],
-        'is_unbalance'    : True,
+        'is_unbalance'    : False,       # ✅ FIX: ใช้ sample_weight แทน
         'num_threads'     : 4,
         'force_col_wise'  : True,
     }
@@ -665,7 +707,8 @@ def _save_report(result: LGBMTrainResult, symbol: str, timeframe: str):
         ],
     }
     out = REPORTS_DIR / f"train_report_lgbm_{symbol}_{timeframe}.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    # ✅ FIX: cls=NumpyEncoder แปลง numpy.bool_/float64/int64 → Python types
+    out.write_text(json.dumps(report, indent=2, cls=NumpyEncoder), encoding="utf-8")
     log.info(f"📄 บันทึก report → {out}")
 
 
