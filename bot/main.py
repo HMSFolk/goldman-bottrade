@@ -83,6 +83,17 @@ class BotState:
         """ตรวจ pause flag — สร้างไฟล์ flags/paused เพื่อหยุดชั่วคราว"""
         return Path("flags/paused").exists()
 
+    def set_pause(self, state: bool):
+        """เปิด/ปิด pause flag (ใช้โดย circuit breaker)"""
+        flag = Path("flags/paused")
+        if state:
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.touch()
+            log.warning("🔴 Bot PAUSED (circuit breaker)")
+        else:
+            flag.unlink(missing_ok=True)
+            log.info("🟢 Bot RESUMED")
+
     def reset_error_count(self):
         self.error_count = 0
 
@@ -364,6 +375,18 @@ def run_all_symbols():
     # ตรวจ MT5 connection
     STATE.client.ensure_connected()
 
+    # ── Circuit Breaker ───────────────────────────────────────
+    cb_result = STATE.risk.check_circuit_breaker()
+    if cb_result.triggered:
+        log.critical(f"⛔ CIRCUIT BREAKER: {cb_result}")
+        STATE.set_pause(True)
+        return   # skip this tick entirely
+    elif STATE.is_paused():
+        # CB auto-resumed (set_pause(False) ถูกเรียกใน _try_auto_resume)
+        # แต่ flag ไฟล์อาจยังค้างอยู่ — clear ถ้า CB ไม่ triggered
+        STATE.set_pause(False)
+    # ─────────────────────────────────────────────────────────
+
     # รัน tick แต่ละ symbol
     for sym in CFG['symbols']['active']:
         run_tick(sym)
@@ -559,7 +582,6 @@ def main():
                 sys.exit(1)   # NSSM จะ restart อัตโนมัติ
 
             time.sleep(30)    # รอก่อน retry
-
 
 # ── Helpers ────────────────────────────────────────────────────
 def _now_str() -> str:

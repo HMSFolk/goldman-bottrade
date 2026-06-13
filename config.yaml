@@ -132,7 +132,6 @@ session:
 
   # วันหยุดตลาด — ไม่เทรด (อัปเดตทุกปี)
   market_holidays:
-    - "2026-12-25"   # Christmas
     - "2026-01-01"   # New Year
     - "2026-12-25"   # Christmas 2026
 

@@ -16,10 +16,13 @@ Risk Manager — ระบบป้องกันความเสี่ยง
 ════════════════════════════════════════════════════════════
 """
 
+import json
 import logging
+import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 from collections import deque
 
@@ -130,6 +133,35 @@ class SpreadStats:
         return all(s > self.avg * 1.3 for s in last3)
 
 
+@dataclass
+class CircuitBreakerResult:
+    """ผลการตรวจ circuit breaker ใน 1 รอบ"""
+    triggered   : bool
+    reason      : str  = ""
+    level       : str  = ""    # "daily" | "weekly" | "consecutive" | "floating_dd"
+    value       : float = 0.0
+    limit       : float = 0.0
+
+    def __str__(self) -> str:
+        if not self.triggered:
+            return "✅ Circuit breaker: All OK"
+        return (
+            f"🚨 Circuit breaker [{self.level.upper()}]: {self.reason} "
+            f"| value={self.value:.2f} limit={self.limit:.2f}"
+        )
+
+
+@dataclass
+class CircuitBreakerState:
+    """สถานะ persistent ของ circuit breaker (บันทึกใน flags/)"""
+    is_triggered     : bool            = False
+    trigger_level    : str             = ""
+    trigger_reason   : str             = ""
+    triggered_at     : Optional[str]   = None
+    auto_resume_at   : Optional[str]   = None
+    consecutive_count: int             = 0
+
+
 # ══════════════════════════════════════════════════════════════
 # Risk Manager
 # ══════════════════════════════════════════════════════════════
@@ -165,6 +197,12 @@ class RiskManager:
 
         # Spread history (rolling stats per symbol)
         self._spread_history: dict[str, SpreadStats] = {}
+
+        # Circuit Breaker state (persistent across restarts)
+        self._cb_state_path = Path(
+            CFG.get('paths', {}).get('flags', 'flags')
+        ) / 'circuit_breaker_state.json'
+        self._cb_state = self._load_cb_state()
 
         log.info(
             f"RiskManager initialized:\n"
@@ -898,6 +936,370 @@ class RiskManager:
                 "is_widening" : stats.is_widening,
             }
         return summary
+
+    # ══════════════════════════════════════════════════════════
+    # Circuit Breaker — Public API
+    # ══════════════════════════════════════════════════════════
+
+    def check_circuit_breaker(self) -> CircuitBreakerResult:
+        """
+        ตรวจ circuit breaker ทุก condition
+        เรียกต้น loop ทุก cycle ของ bot/main.py
+        ถ้า triggered=True → pause bot ทันที
+        """
+        cfg_cb = CFG.get("circuit_breaker", {})
+        if not cfg_cb.get("enabled", True):
+            return CircuitBreakerResult(triggered=False)
+
+        # ลอง auto-resume ก่อน (ถ้าถึงเวลาแล้ว)
+        if self._cb_state.is_triggered:
+            resumed = self._try_auto_resume()
+            if resumed:
+                log.info("✅ Circuit breaker auto-resumed")
+            else:
+                return CircuitBreakerResult(
+                    triggered = True,
+                    reason    = self._cb_state.trigger_reason,
+                    level     = self._cb_state.trigger_level,
+                )
+
+        # ตรวจทุก condition (floating_dd ก่อน — real-time)
+        checks = [
+            ("floating_dd",  self._cb_check_floating_dd),
+            ("daily",        self._cb_check_daily_loss),
+            ("consecutive",  self._cb_check_consecutive_losses),
+            ("weekly",       self._cb_check_weekly_loss),
+        ]
+
+        for level, fn in checks:
+            try:
+                triggered, value, limit, reason = fn()
+                if triggered:
+                    result = CircuitBreakerResult(
+                        triggered=True, reason=reason,
+                        level=level, value=value, limit=limit,
+                    )
+                    self._on_cb_triggered(result)
+                    return result
+            except Exception as e:
+                log.error(f"CB check [{level}] error: {e}", exc_info=True)
+
+        return CircuitBreakerResult(triggered=False)
+
+    def get_circuit_breaker_status(self) -> dict:
+        """สรุปสถานะ CB ทั้งหมด — ใช้สำหรับ /status Telegram หรือ dashboard"""
+        status = {
+            "triggered"      : self._cb_state.is_triggered,
+            "trigger_level"  : self._cb_state.trigger_level,
+            "trigger_reason" : self._cb_state.trigger_reason,
+            "triggered_at"   : self._cb_state.triggered_at,
+            "auto_resume_at" : self._cb_state.auto_resume_at,
+        }
+        try:
+            status["daily_loss_usd"]    = round(self._cb_get_pnl(days_back=1), 2)
+            status["weekly_loss_usd"]   = round(self._cb_get_pnl(days_back=7), 2)
+            status["consecutive_count"] = self._cb_get_consecutive_loss_count()
+            acc = self._cb_get_account_info()
+            if acc:
+                bal = acc.get("balance", 0)
+                eq  = acc.get("equity",  0)
+                status["balance"]         = bal
+                status["equity"]          = eq
+                status["floating_dd_usd"] = round(bal - eq, 2)
+                status["floating_dd_pct"] = round((bal - eq) / bal * 100, 2) if bal > 0 else 0
+        except Exception:
+            pass
+        return status
+
+    def resume_circuit_breaker(self):
+        """Manual resume — เรียกจาก Telegram /resume command"""
+        self._cb_state.is_triggered      = False
+        self._cb_state.trigger_level     = ""
+        self._cb_state.trigger_reason    = ""
+        self._cb_state.triggered_at      = None
+        self._cb_state.auto_resume_at    = None
+        self._cb_state.consecutive_count = 0
+        self._save_cb_state()
+        log.info("✅ Circuit breaker manually resumed")
+
+    # ══════════════════════════════════════════════════════════
+    # Circuit Breaker — Individual Checks
+    # ══════════════════════════════════════════════════════════
+
+    def _cb_check_daily_loss(self) -> tuple:
+        """ตรวจว่าขาดทุนวันนี้เกิน limit หรือไม่"""
+        cfg = CFG.get("circuit_breaker", {}).get("daily", {})
+        if not cfg.get("enabled", True):
+            return False, 0.0, 0.0, ""
+
+        daily_pnl = self._cb_get_pnl(days_back=1)
+        if daily_pnl >= 0:
+            return False, 0.0, 0.0, ""
+
+        loss = abs(daily_pnl)
+
+        # ตรวจ USD limit
+        loss_usd = cfg.get("loss_usd")
+        if loss_usd and loss >= float(loss_usd):
+            return (True, -loss, -float(loss_usd),
+                    f"Daily loss ${loss:.2f} hit USD limit ${float(loss_usd):.2f}")
+
+        # ตรวจ % ของ balance
+        loss_pct = cfg.get("loss_pct", 3.0)
+        acc = self._cb_get_account_info()
+        if acc and acc.get("balance", 0) > 0:
+            balance   = acc["balance"]
+            limit_usd = balance * loss_pct / 100
+            if loss >= limit_usd:
+                return (True, -loss, -limit_usd,
+                        f"Daily loss ${loss:.2f} ({loss/balance*100:.1f}%) "
+                        f"hit limit {loss_pct:.1f}% (${limit_usd:.2f})")
+
+        return False, 0.0, 0.0, ""
+
+    def _cb_check_weekly_loss(self) -> tuple:
+        """ตรวจขาดทุนสะสม 7 วัน"""
+        cfg = CFG.get("circuit_breaker", {}).get("weekly", {})
+        if not cfg.get("enabled", True):
+            return False, 0.0, 0.0, ""
+
+        weekly_pnl = self._cb_get_pnl(days_back=7)
+        if weekly_pnl >= 0:
+            return False, 0.0, 0.0, ""
+
+        loss     = abs(weekly_pnl)
+        loss_pct = cfg.get("loss_pct", 8.0)
+        acc      = self._cb_get_account_info()
+
+        if acc and acc.get("balance", 0) > 0:
+            balance   = acc["balance"]
+            limit_usd = balance * loss_pct / 100
+            if loss >= limit_usd:
+                return (True, -loss, -limit_usd,
+                        f"Weekly loss ${loss:.2f} ({loss/balance*100:.1f}%) "
+                        f"hit limit {loss_pct:.1f}% (${limit_usd:.2f})")
+
+        return False, 0.0, 0.0, ""
+
+    def _cb_check_consecutive_losses(self) -> tuple:
+        """ตรวจ consecutive losses"""
+        cfg = CFG.get("circuit_breaker", {}).get("consecutive_losses", {})
+        if not cfg.get("enabled", True):
+            return False, 0.0, 0.0, ""
+
+        max_count = int(cfg.get("count", 5))
+        count     = self._cb_get_consecutive_loss_count()
+        self._cb_state.consecutive_count = count
+
+        if count >= max_count:
+            return (True, float(count), float(max_count),
+                    f"Consecutive losses: {count} hits limit {max_count}")
+
+        return False, 0.0, 0.0, ""
+
+    def _cb_check_floating_dd(self) -> tuple:
+        """ตรวจ floating drawdown (real-time, open positions)"""
+        cfg = CFG.get("circuit_breaker", {}).get("floating_dd", {})
+        if not cfg.get("enabled", True):
+            return False, 0.0, 0.0, ""
+
+        acc = self._cb_get_account_info()
+        if not acc:
+            return False, 0.0, 0.0, ""
+
+        balance = acc.get("balance", 0)
+        equity  = acc.get("equity",  0)
+        if balance <= 0:
+            return False, 0.0, 0.0, ""
+
+        floating_loss = balance - equity
+        if floating_loss <= 0:
+            return False, 0.0, 0.0, ""
+
+        max_pct   = cfg.get("max_pct", 5.0)
+        limit_usd = balance * max_pct / 100
+        dd_pct    = floating_loss / balance * 100
+
+        if floating_loss >= limit_usd:
+            return (True, -floating_loss, -limit_usd,
+                    f"Floating DD ${floating_loss:.2f} ({dd_pct:.1f}%) "
+                    f"hit limit {max_pct:.1f}% (${limit_usd:.2f})")
+
+        warn_pct = cfg.get("warn_pct", 70)
+        if dd_pct >= max_pct * warn_pct / 100:
+            log.warning(
+                f"⚠️  Floating DD ${floating_loss:.2f} ({dd_pct:.1f}%) "
+                f"approaching limit {max_pct:.1f}%"
+            )
+
+        return False, 0.0, 0.0, ""
+
+    # ══════════════════════════════════════════════════════════
+    # Circuit Breaker — Trigger / Resume
+    # ══════════════════════════════════════════════════════════
+
+    def _on_cb_triggered(self, result: CircuitBreakerResult):
+        """เรียกเมื่อ CB trigger — บันทึก state + notify Telegram"""
+        now    = datetime.now(timezone.utc)
+        cfg_cb = CFG.get("circuit_breaker", {})
+
+        auto_resume_at = None
+        if result.level == "daily":
+            if cfg_cb.get("daily", {}).get("auto_resume", True):
+                tomorrow = (now + timedelta(days=1)).replace(
+                    hour=0, minute=5, second=0, microsecond=0
+                )
+                auto_resume_at = tomorrow.isoformat()
+        elif result.level == "consecutive":
+            cooldown_h = cfg_cb.get("consecutive_losses", {}).get("cooldown_hours", 4)
+            auto_resume_at = (now + timedelta(hours=cooldown_h)).isoformat()
+        # weekly + floating_dd → manual only
+
+        self._cb_state.is_triggered   = True
+        self._cb_state.trigger_level  = result.level
+        self._cb_state.trigger_reason = result.reason
+        self._cb_state.triggered_at   = now.isoformat()
+        self._cb_state.auto_resume_at = auto_resume_at
+        self._save_cb_state()
+
+        log.critical(str(result))
+        if auto_resume_at:
+            log.info(f"  Auto-resume scheduled: {auto_resume_at}")
+        else:
+            log.info("  Manual /resume required via Telegram")
+
+        if cfg_cb.get("notify_telegram", True):
+            try:
+                from bot.notifier import notify
+                resume_msg = (
+                    f"\n⏰ Auto-resume at: {auto_resume_at}"
+                    if auto_resume_at
+                    else "\n🔑 Manual /resume required"
+                )
+                notify(
+                    f"🚨 *Circuit Breaker Triggered*\n\n"
+                    f"Level: `{result.level.upper()}`\n"
+                    f"Reason: {result.reason}\n"
+                    f"Time: `{now.strftime('%Y-%m-%d %H:%M UTC')}`"
+                    f"{resume_msg}"
+                )
+            except Exception as e:
+                log.warning(f"CB notify error: {e}")
+
+    def _try_auto_resume(self) -> bool:
+        """ตรวจว่าถึงเวลา auto-resume หรือยัง — คืน True ถ้า resume แล้ว"""
+        if not self._cb_state.auto_resume_at:
+            return False
+
+        now       = datetime.now(timezone.utc)
+        resume_at = datetime.fromisoformat(self._cb_state.auto_resume_at)
+        if resume_at.tzinfo is None:
+            resume_at = resume_at.replace(tzinfo=timezone.utc)
+
+        if now >= resume_at:
+            self.resume_circuit_breaker()
+            try:
+                from bot.notifier import notify
+                notify("✅ *Circuit Breaker Auto-Resumed*\nBot กลับมาเทรดตามปกติ")
+            except Exception:
+                pass
+            return True
+
+        return False
+
+    # ══════════════════════════════════════════════════════════
+    # Circuit Breaker — Data Helpers
+    # ══════════════════════════════════════════════════════════
+
+    def _cb_get_pnl(self, days_back: int = 1) -> float:
+        """ดึง P&L จาก SQLite ย้อนหลัง N วัน (negative = loss)"""
+        try:
+            db_path = CFG.get("paths", {}).get("db", "db/trades.db")
+            if not Path(db_path).exists():
+                return 0.0
+            conn = sqlite3.connect(db_path)
+            try:
+                cur = conn.execute(
+                    """
+                    SELECT COALESCE(SUM(profit), 0)
+                    FROM   trades
+                    WHERE  close_time IS NOT NULL
+                      AND  close_time >= datetime('now', ? || ' days')
+                    """,
+                    (f"-{days_back}",),
+                )
+                return float(cur.fetchone()[0])
+            finally:
+                conn.close()
+        except Exception as e:
+            log.error(f"_cb_get_pnl error: {e}")
+            return 0.0
+
+    def _cb_get_consecutive_loss_count(self) -> int:
+        """นับ consecutive losses ล่าสุด (หยุดเมื่อเจอ trade กำไร)"""
+        try:
+            db_path = CFG.get("paths", {}).get("db", "db/trades.db")
+            if not Path(db_path).exists():
+                return 0
+            conn = sqlite3.connect(db_path)
+            try:
+                cur = conn.execute(
+                    """
+                    SELECT profit FROM trades
+                    WHERE  close_time IS NOT NULL
+                    ORDER  BY close_time DESC
+                    LIMIT  30
+                    """
+                )
+                count = 0
+                for (profit,) in cur.fetchall():
+                    if float(profit or 0) < 0:
+                        count += 1
+                    else:
+                        break
+                return count
+            finally:
+                conn.close()
+        except Exception as e:
+            log.error(f"_cb_get_consecutive_loss_count error: {e}")
+            return 0
+
+    def _cb_get_account_info(self) -> Optional[dict]:
+        """ดึง account info จาก MT5"""
+        try:
+            acc = mt5.account_info()
+            if acc is None:
+                return None
+            return {"balance": acc.balance, "equity": acc.equity, "profit": acc.profit}
+        except Exception:
+            return None
+
+    # ══════════════════════════════════════════════════════════
+    # Circuit Breaker — State Persistence
+    # ══════════════════════════════════════════════════════════
+
+    def _load_cb_state(self) -> CircuitBreakerState:
+        """โหลด state จาก disk (ทนต่อ bot restart)"""
+        try:
+            if self._cb_state_path.exists():
+                data = json.loads(
+                    self._cb_state_path.read_text(encoding="utf-8")
+                )
+                return CircuitBreakerState(**data)
+        except Exception as e:
+            log.warning(f"CB: cannot load state: {e}")
+        return CircuitBreakerState()
+
+    def _save_cb_state(self):
+        """บันทึก state ลง disk"""
+        try:
+            self._cb_state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cb_state_path.write_text(
+                json.dumps(self._cb_state.__dict__, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            log.error(f"CB: cannot save state: {e}")
 
     def get_risk_summary(self) -> dict:
         """สรุปสถานะ risk ปัจจุบัน"""
