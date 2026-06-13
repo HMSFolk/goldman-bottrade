@@ -99,7 +99,7 @@ class OrderExecutor:
     วิธีใช้:
         executor = OrderExecutor(client, risk)
         result   = executor.send_order(
-            symbol="XAUUSD",
+            symbol="XAUUSDm",
             direction=1,
             sl_distance=0.015,
             tp_distance=0.030,

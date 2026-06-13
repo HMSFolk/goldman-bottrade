@@ -402,8 +402,7 @@ class MT5Client:
     # Position Management
     # ══════════════════════════════════════════════════════════
     def get_positions(
-        self, symbol: str = None
-    ) -> list[dict]:
+        self, symbol: str = None ) -> list[dict]:
         """
         ดู open positions ทั้งหมด
         symbol=None → ทุก position

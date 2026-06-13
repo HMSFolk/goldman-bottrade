@@ -232,7 +232,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--list",    action="store_true")
     parser.add_argument("--backup",  action="store_true")
-    parser.add_argument("--verify",  type=str, default="XAUUSD")
+    parser.add_argument("--verify",  type=str, default="XAUUSDm")
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--restore", type=str, default="")
     args = parser.parse_args()

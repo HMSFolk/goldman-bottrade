@@ -6,7 +6,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBClassifier
 import joblib
 
-def walk_forward_test(symbol: str = "XAUUSD", n_splits: int = 5, train_ratio: float = 0.7):
+def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: float = 0.7):
     """
     Walk-forward: เทรนบนอดีต ทดสอบบนอนาคต
     ทำซ้ำหลายรอบ เหมือนการใช้งานจริง

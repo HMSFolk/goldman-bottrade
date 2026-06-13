@@ -75,7 +75,7 @@ class TradeJSONFormatter(JSONFormatter):
 
     Usage:
         logger.info("ORDER_OPEN", extra={
-            "symbol": "XAUUSD",
+            "symbol": "XAUUSDm",
             "action": "BUY",
             "lot":    0.01,
             "price":  2341.50,

@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from xgboost import XGBClassifier
 
-def optimize_strategy(symbol: str = "XAUUSD", n_trials: int = 100):
+def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 100):
     df = pd.read_parquet(f"data/processed/{symbol}_M15_features.parquet")
 
     def objective(trial):

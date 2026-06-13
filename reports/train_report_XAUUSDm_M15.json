@@ -3,62 +3,62 @@
   "timeframe": "M15",
   "n_features": 50,
   "n_samples": 9995,
-  "trained_at": "2026-06-12T23:20:05.073675+00:00",
+  "trained_at": "2026-06-13T00:14:46.347019+00:00",
   "model_path": "C:\\Users\\netro\\Desktop\\Goldman_Bot\\models\\saved\\xgb_XAUUSDm.pkl",
   "is_acceptable": "False",
-  "mean_accuracy": 0.567,
-  "mean_f1": 0.3689,
-  "std_accuracy": 0.0371,
+  "mean_accuracy": 0.5103,
+  "mean_f1": 0.3607,
+  "std_accuracy": 0.0582,
   "folds": [
     {
       "fold": 1,
       "train_period": "2026-01-09 \u2192 2026-02-04",
       "test_period": "2026-02-05 \u2192 2026-03-03",
-      "accuracy": 0.5243,
-      "f1_macro": 0.4012,
-      "buy_precision": 0.1623,
+      "accuracy": 0.4456,
+      "f1_macro": 0.3446,
+      "buy_precision": 0.1031,
       "buy_recall": 0.2722,
-      "n_trades": 265
+      "n_trades": 417
     },
     {
       "fold": 2,
       "train_period": "2026-01-09 \u2192 2026-03-02",
       "test_period": "2026-03-03 \u2192 2026-03-27",
-      "accuracy": 0.6066,
-      "f1_macro": 0.3425,
-      "buy_precision": 0.114,
-      "buy_recall": 0.0884,
-      "n_trades": 114
+      "accuracy": 0.5826,
+      "f1_macro": 0.364,
+      "buy_precision": 0.1322,
+      "buy_recall": 0.1565,
+      "n_trades": 174
     },
     {
       "fold": 3,
       "train_period": "2026-01-09 \u2192 2026-03-26",
       "test_period": "2026-03-27 \u2192 2026-04-23",
-      "accuracy": 0.5261,
-      "f1_macro": 0.3843,
-      "buy_precision": 0.2086,
-      "buy_recall": 0.145,
-      "n_trades": 139
+      "accuracy": 0.4492,
+      "f1_macro": 0.3708,
+      "buy_precision": 0.1801,
+      "buy_recall": 0.235,
+      "n_trades": 261
     },
     {
       "fold": 4,
       "train_period": "2026-01-09 \u2192 2026-04-22",
       "test_period": "2026-04-23 \u2192 2026-05-19",
-      "accuracy": 0.6096,
-      "f1_macro": 0.3928,
-      "buy_precision": 0.2899,
-      "buy_recall": 0.2198,
-      "n_trades": 138
+      "accuracy": 0.5027,
+      "f1_macro": 0.3748,
+      "buy_precision": 0.1812,
+      "buy_recall": 0.3187,
+      "n_trades": 320
     },
     {
       "fold": 5,
       "train_period": "2026-01-09 \u2192 2026-05-18",
       "test_period": "2026-05-19 \u2192 2026-06-12",
-      "accuracy": 0.5682,
-      "f1_macro": 0.3236,
-      "buy_precision": 0.1341,
-      "buy_recall": 0.2529,
-      "n_trades": 328
+      "accuracy": 0.5712,
+      "f1_macro": 0.3493,
+      "buy_precision": 0.1541,
+      "buy_recall": 0.2701,
+      "n_trades": 305
     }
   ]
 }

@@ -54,11 +54,11 @@ risk:
   max_open_trades: 3
 
   # ไม่เทรดถ้า spread กว้างกว่านี้ (หน่วย: points)
-  # XAUUSD: 30 points ≈ 3 pips | Forex majors: 15 points
+  # XAUUSDm: 30 points ≈ 3 pips | Forex majors: 15 points
   max_spread_points:
-    XAUUSD: 30
-    EURUSD: 15
-    GBPUSD: 20
+    XAUUSDm: 30
+    EURUSDm: 15
+    GBPUSDm: 20
     default: 25
 
   # ขนาด lot ต่ำสุด/สูงสุด (override broker limit)
@@ -69,11 +69,11 @@ risk:
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
   # ระยะ Stop Loss (หน่วย: points)
-  # XAUUSD: 150 points = 15 pips (≈ $1.50 ต่อ 0.01 lot)
+  # XAUUSDm: 150 points = 15 pips (≈ $1.50 ต่อ 0.01 lot)
   sl_points:
-    XAUUSD: 150
-    EURUSD: 120
-    GBPUSD: 130
+    XAUUSDm: 150
+    EURUSDm: 120
+    GBPUSDm: 130
     default: 130
 
   # Take Profit = SL × tp_ratio

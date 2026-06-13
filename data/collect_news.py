@@ -43,7 +43,7 @@ GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 # queries เกี่ยวกับ Gold + Forex
 _QUERIES = [
     "gold price federal reserve inflation dollar",
-    "XAUUSD gold trading forex dollar",
+    "XAUUSDm gold trading forex dollar",
     "interest rate CPI NFP jobs report",
 ]
 

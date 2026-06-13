@@ -234,7 +234,7 @@ def build_all_features(
     timeframe: str  = "M15",) -> dict:
     """
     Build features ทุก symbol แล้วบันทึกลง data/processed/
-    คืนค่า dict: {"XAUUSD": DataFrame, "EURUSD": DataFrame, ...}
+    คืนค่า dict: {"XAUUSD": DataFrame, "EURUSDm": DataFrame, ...}
     """
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--symbols", nargs="+",
-        help="ระบุ symbol เช่น XAUUSD EURUSD (default: ทุกตัวใน config)"
+        help="ระบุ symbol เช่น XAUUSD EURUSDm (default: ทุกตัวใน config)"
     )
     parser.add_argument(
         "--timeframe", default="M15",

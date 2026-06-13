@@ -192,7 +192,7 @@ echo  └───────────────────────�
 echo.
 echo  Options:
 echo   1. Train all symbols (default)
-echo   2. Train XAUUSD only
+echo   2. Train XAUUSDm only
 echo   3. Train with Hyperopt (ช้ากว่า แต่ดีกว่า)
 echo.
 set /p TCHOICE=  Choose (1-3): 
@@ -201,8 +201,8 @@ if "%TCHOICE%"=="1" (
     "%PYTHON%" models\train_lgbm.py
 )
 if "%TCHOICE%"=="2" (
-    "%PYTHON%" models\train_xgb.py  --symbols XAUUSD
-    "%PYTHON%" models\train_lgbm.py --symbols XAUUSD
+    "%PYTHON%" models\train_xgb.py  --symbols XAUUSDm
+    "%PYTHON%" models\train_lgbm.py --symbols XAUUSDm
 )
 if "%TCHOICE%"=="3" (
     "%PYTHON%" models\train_xgb.py  --hyperopt
@@ -221,7 +221,7 @@ echo  │  Training LSTM + Attention               │
 echo  │  (ใช้เวลานาน — 1-3 ชั่วโมง)            │
 echo  └──────────────────────────────────────────┘
 echo.
-"%PYTHON%" models\train_lstm.py --symbols XAUUSD
+"%PYTHON%" models\train_lstm.py --symbols XAUUSDm
 goto DONE
 
 :: ════════════════════════════════════════════════════════════
@@ -322,7 +322,7 @@ echo  ┌───────────────────────�
 echo  │  Model Files Status                      │
 echo  └──────────────────────────────────────────┘
 echo.
-"%PYTHON%" -c "from models.manage_models import print_model_table, verify_model; print_model_table(); print('\nVerifying XAUUSD models...'); verify_model('XAUUSD')"
+"%PYTHON%" -c "from models.manage_models import print_model_table, verify_model; print_model_table(); print('\nVerifying XAUUSDm models...'); verify_model('XAUUSDm')"
 goto DONE
 
 :: ════════════════════════════════════════════════════════════
