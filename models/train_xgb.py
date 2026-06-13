@@ -467,7 +467,7 @@ def _hyperopt_params(X: pd.DataFrame, y: pd.Series) -> dict:
         model.fit(
             X.iloc[:split], y_e[:split],
             eval_set             = [(X.iloc[split:], y_e[split:])],
-            early_stopping_rounds = 30,
+            #early_stopping_rounds = 30,
             verbose              = False,
         )
         pred = le.inverse_transform(model.predict(X.iloc[split:]))
