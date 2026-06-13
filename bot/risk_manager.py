@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
+from collections import deque
 
 import MetaTrader5 as mt5
 
@@ -82,6 +83,53 @@ class RiskReport:
         )
 
 
+@dataclass
+class SpreadResult:
+    """ผลการตรวจ spread"""
+    ok      : bool           # True = spread ปกติ, ให้เทรดได้
+    spread  : float          # spread ปัจจุบัน (หน่วยเดียวกับราคา)
+    limit   : float          # spread สูงสุดที่ยอมรับได้
+    symbol  : str
+    reason  : str = ""       # อธิบายถ้า ok=False
+
+    @property
+    def spread_pct(self) -> float:
+        """spread เป็น % ของ limit"""
+        return (self.spread / self.limit * 100) if self.limit > 0 else 0
+
+    def __str__(self) -> str:
+        status = "✅ OK" if self.ok else "🚫 WIDE"
+        return (
+            f"{status} | {self.symbol} "
+            f"spread={self.spread:.5f} "
+            f"limit={self.limit:.5f} "
+            f"({self.spread_pct:.0f}%)"
+        )
+
+
+@dataclass
+class SpreadStats:
+    """ประวัติ spread ของ symbol นึง (rolling window)"""
+    symbol  : str
+    history : deque = field(default_factory=lambda: deque(maxlen=20))
+
+    @property
+    def avg(self) -> float:
+        return sum(self.history) / len(self.history) if self.history else 0.0
+
+    @property
+    def max_recent(self) -> float:
+        return max(self.history) if self.history else 0.0
+
+    @property
+    def is_widening(self) -> bool:
+        """True ถ้า spread กำลังกว้างขึ้น (3 readings ล่าสุด > avg)"""
+        if len(self.history) < 5:
+            return False
+        last3 = list(self.history)[-3:]
+        return all(s > self.avg * 1.3 for s in last3)
+
+
 # ══════════════════════════════════════════════════════════════
 # Risk Manager
 # ══════════════════════════════════════════════════════════════
@@ -114,6 +162,9 @@ class RiskManager:
 
         # Margin limit
         self.min_margin_level  = 200.0   # % ไม่เทรดถ้า margin < 200%
+
+        # Spread history (rolling stats per symbol)
+        self._spread_history: dict[str, SpreadStats] = {}
 
         log.info(
             f"RiskManager initialized:\n"
@@ -728,6 +779,125 @@ class RiskManager:
         ) / self._daily_start_balance
 
         return loss_pct < self.max_daily_loss
+
+    # ══════════════════════════════════════════════════════════
+    # Spread Filter
+    # ══════════════════════════════════════════════════════════
+    def check_spread(self, symbol: str) -> SpreadResult:
+        """
+        ตรวจว่า spread ปัจจุบันอยู่ในขอบเขตที่ยอมรับได้ไหม
+
+        Returns:
+            SpreadResult — ถ้า ok=False ไม่ควรเปิด order
+
+        ตัวอย่าง:
+            result = risk.check_spread("XAUUSDm")
+            if not result.ok:
+                return  # skip trade
+        """
+        cfg_sf = CFG.get("spread_filter", {})
+        if not cfg_sf.get("enabled", True):
+            return SpreadResult(ok=True, spread=0.0, limit=0.0, symbol=symbol)
+
+        fail_open = cfg_sf.get("fail_open", True)
+        warn_pct  = cfg_sf.get("warn_pct", 70)
+
+        try:
+            tick = mt5.symbol_info_tick(symbol)
+        except Exception as e:
+            log.error(f"check_spread: MT5 error for {symbol}: {e}")
+            return SpreadResult(
+                ok=fail_open, spread=0.0, limit=0.0,
+                symbol=symbol,
+                reason="MT5 unavailable" if not fail_open else "",
+            )
+
+        if tick is None:
+            log.warning(f"check_spread: no tick for {symbol}")
+            return SpreadResult(
+                ok=fail_open, spread=0.0, limit=0.0,
+                symbol=symbol,
+                reason="No tick data" if not fail_open else "",
+            )
+
+        spread = round(tick.ask - tick.bid, 6)
+        self._update_spread_stats(symbol, spread)
+        limit  = self._get_spread_limit(symbol)
+
+        if spread > limit:
+            reason = (
+                f"Spread {spread:.5f} > limit {limit:.5f} "
+                f"({spread / limit * 100:.0f}% of limit)"
+            )
+            log.warning(f"🚫 {symbol}: {reason}")
+            return SpreadResult(
+                ok=False, spread=spread, limit=limit,
+                symbol=symbol, reason=reason,
+            )
+
+        if spread / limit * 100 >= warn_pct:
+            log.warning(
+                f"⚠️  {symbol}: spread {spread:.5f} "
+                f"({spread / limit * 100:.0f}% of limit={limit:.5f}) — approaching limit"
+            )
+
+        stats = self._spread_history.get(symbol)
+        if stats and stats.is_widening:
+            log.warning(
+                f"⚠️  {symbol}: spread widening "
+                f"(avg={stats.avg:.5f} → current={spread:.5f}) — possible news coming"
+            )
+
+        return SpreadResult(ok=True, spread=spread, limit=limit, symbol=symbol)
+
+    def _get_spread_limit(self, symbol: str) -> float:
+        """
+        ดึง max spread สำหรับ symbol จาก config.yaml
+
+        config ตัวอย่าง:
+          spread_filter:
+            limits:
+              XAUUSDm: 0.80
+              EURUSDm: 0.0003
+              default: 0.0010
+        """
+        limits = CFG.get("spread_filter", {}).get("limits", {})
+
+        if isinstance(limits, dict):
+            if symbol in limits:
+                return float(limits[symbol])
+            base = symbol.rstrip("m")
+            if base in limits:
+                return float(limits[base])
+            return float(limits.get("default", 0.0010))
+
+        try:
+            return float(limits)
+        except (TypeError, ValueError):
+            return 0.0010
+
+    def _update_spread_stats(self, symbol: str, spread: float):
+        """อัปเดต rolling history ของ spread"""
+        if symbol not in self._spread_history:
+            self._spread_history[symbol] = SpreadStats(symbol=symbol)
+        self._spread_history[symbol].history.append(spread)
+
+    def get_spread_summary(self) -> dict:
+        """
+        สรุป spread stats ทุก symbol
+        ใช้สำหรับ /spread command ใน Telegram bot หรือ dashboard
+        """
+        summary = {}
+        for sym, stats in self._spread_history.items():
+            limit = self._get_spread_limit(sym)
+            summary[sym] = {
+                "current"     : stats.history[-1] if stats.history else 0.0,
+                "avg_20"      : round(stats.avg, 6),
+                "max_recent"  : round(stats.max_recent, 6),
+                "limit"       : limit,
+                "is_widening" : stats.is_widening,
+            }
+        return summary
 
     def get_risk_summary(self) -> dict:
         """สรุปสถานะ risk ปัจจุบัน"""

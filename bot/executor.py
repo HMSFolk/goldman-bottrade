@@ -222,20 +222,16 @@ class OrderExecutor:
         )
 
         # ── Step 4: ตรวจ spread ก่อนส่ง (final check) ────────
-        spread_pts = round(
-            (tick.ask - tick.bid) / info.point
-        )
-        max_spread = CFG['risk']['max_spread_points']
-        if isinstance(max_spread, dict):
-            sp_limit = max_spread.get(symbol, max_spread.get('default', 30))
-        else:
-            sp_limit = int(max_spread)
-
-        if spread_pts > sp_limit:
+        spread_result = self.risk.check_spread(symbol)
+        if not spread_result.ok:
+            log.warning(
+                f"⛔ Order blocked [{symbol}]: {spread_result.reason}"
+            )
             return OrderResult(
                 success   = False,
                 symbol    = symbol,
-                error_msg = f"Spread {spread_pts}pts > {sp_limit}pts",
+                direction = direction,
+                error_msg = spread_result.reason,
             )
 
         # ── Step 5: Build Request ──────────────────────────────

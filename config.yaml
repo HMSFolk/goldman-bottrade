@@ -262,4 +262,51 @@ news_filter:
 
 # ── 14.API Keys ──────────────────────────────────────────────────
 api_keys:
-  finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0" # ใส่ key ถ้ามี (free ที่ finnhub.io)
+  finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0" # ใส่ keyfinnhub.io
+
+# ── 15.Spread Filter ─────────────────────────────────────────────
+spread_filter:
+  enabled    : true
+  fail_open  : true     # true = ให้เทรดต่อถ้า MT5 ดึง tick ไม่ได้
+  warn_pct   : 70       # log warning เมื่อ spread ถึง 70% ของ limit
+
+  limits:
+    # ── ทอง ──────────────────────────────────────────────────
+    XAUUSDm  : 0.80     # $0.80 (ปกติ ~$0.25-0.35, block ถ้า >$0.80)
+    XAUUSD   : 0.80
+
+    # ── Forex ─────────────────────────────────────────────────
+    EURUSDm  : 0.00030  # 3 pips  (ปกติ ~0.5-1.0 pip)
+    GBPUSDm  : 0.00050  # 5 pips  (ปกติ ~0.7-1.5 pip)
+
+    # ── Default ───────────────────────────────────────────────
+    default  : 0.00100  # 10 pips สำหรับ symbol ที่ไม่ได้ระบุ
+
+circuit_breaker:
+  enabled           : true
+  notify_telegram   : true   # ส่งแจ้งเตือน Telegram เมื่อ trigger
+
+  # ── 16. Daily loss limit ──────────────────────────────────────
+  daily:
+    enabled     : true
+    loss_pct    : 3.0        # หยุดถ้าขาดทุนวันนี้ > 3% ของ balance
+    loss_usd    : null       # หรือตั้งเป็น USD fixed เช่น 300
+    auto_resume : true       # resume อัตโนมัติ 00:05 UTC ของวันถัดไป
+
+  # ── 17. Weekly loss limit ─────────────────────────────────────
+  weekly:
+    enabled     : true
+    loss_pct    : 8.0        # หยุดถ้าขาดทุนสะสม 7 วัน > 8%
+                             # ต้อง /resume เองเท่านั้น
+
+  # ── 18. Consecutive losses ────────────────────────────────────
+  consecutive_losses:
+    enabled         : true
+    count           : 5      # แพ้ติดกัน 5 ครั้ง → หยุด
+    cooldown_hours  : 4      # auto-resume หลัง 4 ชม.
+
+  # ── 19. Floating drawdown (real-time) ─────────────────────────
+  floating_dd:
+    enabled     : true
+    max_pct     : 5.0        # หยุดถ้า equity ต่ำกว่า balance > 5%
+    warn_pct    : 70         # warn เมื่อถึง 70% ของ limit
