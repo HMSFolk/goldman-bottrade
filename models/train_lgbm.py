@@ -7,22 +7,15 @@ LightGBM Training Pipeline
 - Walk-Forward Validation เหมือน XGB
 """
 
-import sys
-from pathlib import Path
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-# ✅ FIX CRITICAL-1: setup_logging ก่อน import อื่น
-from bot.setup_logging import setup_logging
-setup_logging()
-
 import logging
+import logging.config
+import yaml
 import json
 import time
 import joblib
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
@@ -35,16 +28,17 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import LabelEncoder
 
-# ✅ FIX CRITICAL-2: get_config() แทน yaml.safe_load
-from config import get_config
-CFG = get_config()
+# โหลด config
+with open("logging.yaml", encoding="utf-8") as f:
+    logging.config.dictConfig(yaml.safe_load(f))
+with open("config.yaml", encoding="utf-8") as f:
+    CFG = yaml.safe_load(f)
 
 log = logging.getLogger("models")
 
-# ✅ FIX CRITICAL-3: absolute paths จาก project root
-PROCESSED_DIR = _ROOT / CFG['paths']['data_processed']
-MODELS_DIR    = _ROOT / CFG['paths']['models_saved']
-REPORTS_DIR   = _ROOT / CFG['paths']['reports']  # ✅ FIX: absolute path
+PROCESSED_DIR = Path(CFG['paths']['data_processed'])
+MODELS_DIR    = Path(CFG['paths']['models_saved'])
+REPORTS_DIR   = Path("reports")
 
 NON_FEATURE_COLS = {
     'open','high','low','close',
@@ -140,11 +134,20 @@ def load_and_prepare(
     df = pd.read_parquet(path)
     df = df.dropna(subset=['label'])
 
+    # ── ✅ FIX: ลบ duplicate columns ถ้ามี (ป้องกัน LightGBM error) ──────
+    if df.columns.duplicated().any():
+        dup_cols = df.columns[df.columns.duplicated()].tolist()
+        log.warning(f"พบ duplicate columns ใน parquet: {dup_cols} — ลบออก")
+        df = df.loc[:, ~df.columns.duplicated(keep='first')]
+
     # ── Numeric features ───────────────────────────────────────
     num_features = [
         c for c in df.columns
         if c not in NON_FEATURE_COLS
         and not c.startswith('future_')
+        and not c.endswith('_enc')   # ✅ FIX BUG-2: exclude _enc จาก num_features
+                                     # เพราะ _enc จะถูกสร้างใหม่ข้างล่าง
+                                     # ป้องกัน duplicate ใน all_features
         and df[c].dtype in ['float64','float32','int64','int32']
     ]
 
@@ -155,8 +158,8 @@ def load_and_prepare(
         if c not in NON_FEATURE_COLS
         and df[c].dtype in ['object','category']
         and c in [
-            'rsi_zone','vol_regime','price_zone_20',
-            'nearest_pivot_level','trend_cat','vol_regime',
+            'rsi_zone', 'vol_regime', 'price_zone_20',   # ✅ FIX BUG-1: ลบ vol_regime ซ้ำออก
+            'nearest_pivot_level', 'trend_cat',
         ]
     ]
 
@@ -164,12 +167,15 @@ def load_and_prepare(
     cat_encoded = []
     le_map      = {}
     for col in cat_features_raw:
-        le              = LabelEncoder()
-        df[f'{col}_enc']= le.fit_transform(df[col].fillna('unknown'))
-        le_map[col]     = le
+        le               = LabelEncoder()
+        df[f'{col}_enc'] = le.fit_transform(df[col].fillna('unknown'))
+        le_map[col]      = le
         cat_encoded.append(f'{col}_enc')
 
     all_features = num_features + cat_encoded
+
+    # ✅ FIX: ลบ duplicate ใน feature list (ป้องกัน edge cases)
+    all_features = list(dict.fromkeys(all_features))
 
     # ── Quality filter ─────────────────────────────────────────
     # ลบ features ที่มี NaN > 20%
@@ -659,7 +665,7 @@ def _save_report(result: LGBMTrainResult, symbol: str, timeframe: str):
         ],
     }
     out = REPORTS_DIR / f"train_report_lgbm_{symbol}_{timeframe}.json"
-    out.write_text(json.dumps(report, indent=2 ,default=str), encoding="utf-8")
+    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     log.info(f"📄 บันทึก report → {out}")
 
 
