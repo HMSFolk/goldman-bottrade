@@ -403,7 +403,7 @@ goto SCRIPTS_MENU
 cls
 echo  [Test Config] Checking config.yaml + .env + MT5
 echo.
-"%PYTHON%" test_config.py
+"%PYTHON%" scripts\test_config.py
 goto SCRIPTS_DONE
 
 :SC_CHECK_SYMBOLS
@@ -437,14 +437,14 @@ goto SCRIPTS_DONE
 cls
 echo  [Walk-Forward Test] OOS validation
 echo.
-"%PYTHON%" walk_forward.py
+"%PYTHON%" scripts\walk_forward.py
 goto SCRIPTS_DONE
 
 :SC_OPTIMIZE
 cls
 echo  [Optimize] Tuning SL/TP with Optuna
 echo.
-"%PYTHON%" optimize.py
+"%PYTHON%" scripts\optimize.py
 goto SCRIPTS_DONE
 
 :SC_PAPER_DAILY

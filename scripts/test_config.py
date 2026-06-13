@@ -9,10 +9,10 @@ from config import get_config
 load_dotenv()
 
 # 1. ตรวจ config.yaml
-with open("config.yaml") as f:
+with open("config.yaml",encoding="utf-8" ) as f:
     cfg = yaml.safe_load(f)
 print("✅ config.yaml loaded")
-print(f"   Symbols: {cfg['trading']['symbols']}")
+print(f"   Symbols: {cfg.get('symbols', 'ไม่พบข้อมูล symbols ใน config')}")
 print(f"   Risk:    {cfg['risk']['risk_per_trade']:.1%}")
 
 # 2. ตรวจ .env

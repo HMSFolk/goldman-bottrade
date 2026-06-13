@@ -399,7 +399,7 @@ def optimize_parameters(
     timeframe:   str   = "M15",
     n_trials:    int   = 200,
     objective_fn:str   = "sharpe",  # "sharpe" | "calmar" | "sortino"
-) -> dict:
+    ) -> dict:
     """
     หา SL/TP และ parameter ที่ดีที่สุดด้วย Optuna
     ใช้ 80% ของข้อมูลเป็น optimization set
