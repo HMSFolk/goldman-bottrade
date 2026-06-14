@@ -318,13 +318,11 @@ def build_all_features(
 
     return results
 
-
 # ── Live Feature Builder (ใช้ใน bot/main.py) ─────────────────
 def build_features_live(
     df_raw: pd.DataFrame,
     symbol: str,
-    timeframe: str = "M15",
-) -> pd.DataFrame:
+    timeframe: str = "M15",) -> pd.DataFrame:
     """
     สร้าง features สำหรับ predict real-time
     รับ DataFrame จาก mt5_client.get_ohlcv() โดยตรง
@@ -333,28 +331,35 @@ def build_features_live(
     df = df_raw.copy()
     df = check_data_quality(df, f"live_{symbol}")
 
-    # โหลด HTF จากไฟล์ที่มีอยู่
+    # 1. โหลด HTF จากไฟล์ที่มีอยู่
     htf_dfs = {}
     for tf in CFG['symbols']['htf_timeframes']:
         path = RAW_DIR / f"{symbol}_{tf}.parquet"
         if path.exists():
             htf_dfs[tf] = pd.read_parquet(path)
 
-    # Build features (ไม่สร้าง label)
+    # 2. โหลด Macro จากไฟล์ที่มีอยู่ (แก้ Bug ข้อมูล Macro หายตอนเทรดจริง)
+    macro_dfs = {}
+    if 'data' in CFG and 'macro_symbols' in CFG['data']:
+        for name in CFG['data']['macro_symbols']:
+            path = RAW_DIR / f"macro_{name}.parquet"
+            if path.exists():
+                macro_dfs[name] = pd.read_parquet(path)
+
+    # 3. Build features พื้นฐาน (ไม่สร้าง label)
     df = add_trend_features(df)
     df = add_momentum_features(df)
     df = add_volatility_features(df)
     df = add_price_action_features(df)
 
-    if htf_dfs:
-        df = add_mtf_features(df, htf_dfs, {})
+    # 4. ประกอบร่าง MTF และ Macro
+    if htf_dfs or macro_dfs:
+        df = add_mtf_features(df, htf_dfs, macro_dfs)  # ส่ง macro_dfs เข้าไปแทน {}
 
     # ── Label Encode categoricals ──────────────────────────────
     # ✅ ต้องเรียกในที่นี้ด้วย ไม่งั้น live predict ไม่มี _enc columns
     df = _encode_categoricals(df)
-
     return df
-
 
 # ── Helpers ───────────────────────────────────────────────────
 def _get_feature_cols(df: pd.DataFrame) -> list:
