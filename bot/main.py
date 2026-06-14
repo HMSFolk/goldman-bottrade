@@ -25,6 +25,8 @@ import logging
 import time
 import signal
 import sys
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 import traceback
 from pathlib import Path
 from datetime import datetime, timezone
