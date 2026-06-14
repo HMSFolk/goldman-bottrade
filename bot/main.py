@@ -11,6 +11,13 @@ Startup sequence:
   4. quick data update
   5. schedule loop
   6. run forever
+
+Defense layers ทุก tick:
+  [1] Manual pause flag
+  [2] MT5 connection  → auto-reconnect (ensure_connected)
+  [3] Circuit breaker → auto-pause
+  [4] News window     → skip tick
+  [5] Per-symbol: spread → signal → execute
 ════════════════════════════════════════════════════════════
 """
 import logging
@@ -70,7 +77,7 @@ class BotState:
         self.executor    : OrderExecutor = None
         self.writer      : MetricsWriter = None
         self.strategy                    = None
-        self.news_filter : NewsFilter    = NewsFilter()   # ✅ จุดที่ 2
+        self.news_filter : NewsFilter    = NewsFilter()
 
         # Cooldown tracking
         # ป้องกันเทรดซ้ำ symbol เดียวกันถี่เกินไป
@@ -219,7 +226,6 @@ def run_tick(symbol: str):
             return
 
         # ── 1.5 News Window Check ─────────────────────────────
-        # ✅ จุดที่ 3: ข้ามการเทรดช่วง high-impact news
         if STATE.news_filter.is_news_window(symbol=symbol):
             log.info(f"⚠️  {symbol}: news window — skip")
             return
@@ -244,8 +250,7 @@ def run_tick(symbol: str):
         # ✅ FIX BUG-3: เพิ่ม H4, D1, W1 ที่ขาดหายไป
         # ✅ FIX BUG-4: ส่ง string "M15" ให้ get_ohlcv ไม่ใช่ integer
         #    (TF_MAP conversion อยู่ใน mt5_client.get_ohlcv แล้ว)
-        valid_tfs = {"M1","M5","M15","M30","H1","H4","D1","W1"}
-
+        valid_tfs  = {"M1","M5","M15","M30","H1","H4","D1","W1"}
         primary_tf = STATE.timeframe
         if primary_tf not in valid_tfs:
             log.error(f"Unknown timeframe: {primary_tf}")
@@ -372,22 +377,26 @@ def run_all_symbols():
     # ตรวจ config reload (hot-reload)
     _check_config_reload()
 
-    # ตรวจ MT5 connection
-    STATE.client.ensure_connected()
+    # ── [2] MT5 connection → auto-reconnect ───────────────────
+    # ✅ FIX: ตรวจ return value ด้วย — ถ้า reconnect ล้มเหลวให้ skip tick นี้
+    if not STATE.client.ensure_connected():
+        log.critical(
+            f"[tick {STATE.tick_count}] "
+            f"MT5 reconnect failed — skip this tick"
+        )
+        return
 
-    # ── Circuit Breaker ───────────────────────────────────────
+    # ── [3] Circuit Breaker ───────────────────────────────────
     cb_result = STATE.risk.check_circuit_breaker()
     if cb_result.triggered:
         log.critical(f"⛔ CIRCUIT BREAKER: {cb_result}")
         STATE.set_pause(True)
         return   # skip this tick entirely
     elif STATE.is_paused():
-        # CB auto-resumed (set_pause(False) ถูกเรียกใน _try_auto_resume)
-        # แต่ flag ไฟล์อาจยังค้างอยู่ — clear ถ้า CB ไม่ triggered
+        # CB auto-resumed → clear flag ถ้า CB ไม่ triggered
         STATE.set_pause(False)
-    # ─────────────────────────────────────────────────────────
 
-    # รัน tick แต่ละ symbol
+    # ── [4][5] Per-symbol (news + signal + execute) ───────────
     for sym in CFG['symbols']['active']:
         run_tick(sym)
 
@@ -398,12 +407,28 @@ def run_all_symbols():
     except Exception as e:
         log.warning(f"Account write error: {e}")
 
+    # ── Periodic connection stats (ทุก 10 tick) ───────────────
+    if STATE.tick_count % 10 == 0:
+        try:
+            conn = STATE.client.get_connection_stats()
+            log.info(
+                f"[conn stats @ tick {STATE.tick_count}] "
+                f"MT5={'OK' if conn['connected'] else 'DISCONNECTED'} "
+                f"reconnects={conn['total_reconnects']} "
+                f"disconnects={conn['total_disconnects']} "
+                f"success_rate={conn['reconnect_success_rate']}% "
+                f"uptime={conn['uptime_seconds']:.0f}s"
+            )
+        except Exception:
+            pass
+
 
 def _daily_summary():
     """ส่ง daily summary ทุกคืน"""
     try:
         acc     = STATE.client.get_account()
         summary = STATE.writer.get_daily_summary()
+        conn    = STATE.client.get_connection_stats()   # NEW
 
         notify(
             f"📊 *Daily Summary*\n"
@@ -412,7 +437,9 @@ def _daily_summary():
             f"P&L:     ${acc['profit']:+.2f}\n"
             f"Trades:  {summary.get('trades',0)}\n"
             f"Win Rate:{summary.get('win_rate',0):.1%}\n"
-            f"Ticks:   {STATE.tick_count}"
+            f"Ticks:   {STATE.tick_count}\n"
+            f"MT5 Reconnects: {conn['total_reconnects']} "    # NEW
+            f"(success {conn['reconnect_success_rate']}%)"    # NEW
         )
 
         # Reset daily tracking
@@ -448,9 +475,6 @@ def _check_config_reload():
     """
     global CFG
     try:
-        config_path = Path(CFG['paths'].get('config', 'config.yaml')
-                           ) if 'paths' in CFG else Path("config.yaml")
-        # ใช้ mtime จาก project root
         project_root = Path(__file__).parent.parent
         yaml_path    = project_root / "config.yaml"
         new_mtime    = yaml_path.stat().st_mtime

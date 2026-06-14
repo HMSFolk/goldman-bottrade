@@ -12,11 +12,19 @@ Singleton pattern: สร้างครั้งเดียว ใช้ทั
   - get_positions: open positions ทั้งหมด
   - get_history: ประวัติ trade
   - symbol_info: spec ของแต่ละ symbol
+
+── Auto-Reconnect Layer (added) ──────────────────────────
+  - health_check()        : ตรวจ 3 ชั้น (terminal / server / account)
+  - reconnect()           : exponential backoff จาก config
+  - ensure_connected()    : throttled check → reconnect ถ้าจำเป็น
+  - get_connection_stats(): stats สำหรับ /status และ dashboard
 """
 
 import logging
 import time
 import os
+import threading                            # [1] NEW
+from dataclasses import dataclass           # [1] NEW
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -39,6 +47,27 @@ TF_MAP = {
     "D1" : mt5.TIMEFRAME_D1,
     "W1" : mt5.TIMEFRAME_W1,
 }
+
+
+# ══════════════════════════════════════════════════════════════
+# [2] NEW — ConnectionStats dataclass (เพิ่มก่อน class MT5Client)
+# ══════════════════════════════════════════════════════════════
+@dataclass
+class ConnectionStats:
+    """สถิติ connection ของ MT5"""
+    is_connected       : bool  = False
+    total_disconnects  : int   = 0     # จำนวนครั้งที่หลุด
+    total_reconnects   : int   = 0     # จำนวนครั้งที่ reconnect สำเร็จ
+    failed_reconnects  : int   = 0     # ครั้งที่ reconnect ไม่สำเร็จ
+    last_connected_at  : str   = ""    # ISO UTC
+    last_disconnect_at : str   = ""    # ISO UTC
+    last_reconnect_at  : str   = ""    # ISO UTC
+    uptime_seconds     : float = 0.0   # วินาทีที่ connect ต่อเนื่องล่าสุด
+
+    @property
+    def reconnect_success_rate(self) -> float:
+        total = self.total_reconnects + self.failed_reconnects
+        return (self.total_reconnects / total * 100) if total > 0 else 100.0
 
 
 # ══════════════════════════════════════════════════════════════
@@ -88,6 +117,12 @@ class MT5Client:
         # Cache symbol info (ไม่ต้อง query ทุกครั้ง)
         self._symbol_cache: dict = {}
 
+        # [3] NEW — Reconnect state ────────────────────────────
+        self._conn_stats    = ConnectionStats()
+        self._conn_lock     = threading.Lock()   # thread-safe reconnect
+        self._connected_at  = None               # datetime ที่ connect สำเร็จล่าสุด
+        self._hc_last_check = None               # datetime ที่ health_check ครั้งล่าสุด
+
         self._initialized = True
         log.info(
             f"MT5Client init: "
@@ -100,10 +135,11 @@ class MT5Client:
     # ══════════════════════════════════════════════════════════
     def connect(self) -> bool:
         """
-        เชื่อมต่อ MT5 และ Login Exness
+        เชื่อมต่อ MT5 และ Login
         คืน True ถ้าสำเร็จ
+        เรียกครั้งแรกตอน startup เท่านั้น
         """
-        if self._connected and self._ping():
+        if self._connected and self._conn_stats.is_connected:
             return True   # connected อยู่แล้ว
 
         log.info(f"Connecting to MT5: {self._server}...")
@@ -140,8 +176,12 @@ class MT5Client:
             mt5.shutdown()
             return False
 
-        self._connected  = True
-        self._last_ping  = time.time()
+        # ── Update state (ทั้ง legacy และ ConnectionStats) ────
+        self._connected                     = True
+        self._last_ping                     = time.time()
+        self._connected_at                  = datetime.now(timezone.utc)
+        self._conn_stats.is_connected       = True
+        self._conn_stats.last_connected_at  = self._connected_at.isoformat()
 
         log.info(
             f"✅ MT5 Connected:\n"
@@ -162,79 +202,288 @@ class MT5Client:
         """ตัด connection MT5 อย่างสะอาด"""
         if self._connected:
             mt5.shutdown()
-            self._connected = False
+            self._connected               = False
+            self._conn_stats.is_connected = False
             log.info("MT5 disconnected")
+
+    # ══════════════════════════════════════════════════════════
+    # [4] NEW METHODS — Auto-Reconnect Layer
+    # ══════════════════════════════════════════════════════════
+
+    def health_check(self, symbol: str = "XAUUSDm") -> bool:
+        """
+        ตรวจว่า MT5 ยังเชื่อมต่ออยู่หรือไม่ (เร็ว < 100ms)
+
+        ตรวจ 3 ชั้น:
+          1. terminal_info() — MT5 app ยังเปิดอยู่ไหม
+          2. terminal.connected — server connection ยังอยู่ไหม
+          3. account_info() — login session ยังใช้งานได้ไหม
+
+        Returns:
+            True = ทุกอย่าง OK, False = มีปัญหา → ควร reconnect
+        """
+        try:
+            # ชั้น 1: terminal process
+            info = mt5.terminal_info()
+            if info is None:
+                log.debug("health_check: terminal_info() is None")
+                self._mark_disconnected()
+                return False
+
+            # ชั้น 2: server connection flag
+            if not info.connected:
+                log.debug("health_check: terminal not connected to server")
+                self._mark_disconnected()
+                return False
+
+            # ชั้น 3: active account session
+            acc = mt5.account_info()
+            if acc is None:
+                log.debug("health_check: account_info() is None")
+                self._mark_disconnected()
+                return False
+
+            # ทุกอย่าง OK — อัปเดต uptime
+            if self._connected_at:
+                self._conn_stats.uptime_seconds = (
+                    datetime.now(timezone.utc) - self._connected_at
+                ).total_seconds()
+
+            self._conn_stats.is_connected = True
+            self._connected               = True
+            self._hc_last_check           = datetime.now(timezone.utc)
+            return True
+
+        except Exception as e:
+            log.warning(f"health_check error: {e}")
+            self._mark_disconnected()
+            return False
+
+    def reconnect(self) -> bool:
+        """
+        พยายาม reconnect กลับไปยัง MT5
+
+        Strategy: exponential backoff (ค่าจาก config.yaml → mt5.reconnect)
+          retry 1: sleep 5s
+          retry 2: sleep 10s
+          retry 3: sleep 20s   ← ส่ง Telegram alert ที่ครั้งนี้
+          retry N: sleep min(5 × 2^(N-1), 300s)
+
+        Returns:
+            True = reconnect สำเร็จ
+            False = หมด retry ทั้งหมด → Bot ควร pause
+        """
+        from config import get_config
+        cfg_rc   = get_config().get("mt5", {}).get("reconnect", {})
+        max_try  = int(cfg_rc.get("max_retries",           10))
+        base_s   = float(cfg_rc.get("base_sleep_sec",       5))
+        max_s    = float(cfg_rc.get("max_sleep_sec",      300))
+        alert_at = int(cfg_rc.get("alert_after_retries",    3))
+
+        with self._conn_lock:
+            log.warning(
+                f"MT5 disconnected — starting reconnect "
+                f"(max {max_try} attempts)"
+            )
+            self._mark_disconnected()
+
+            for attempt in range(1, max_try + 1):
+                sleep_s = min(base_s * (2 ** (attempt - 1)), max_s)
+                log.info(
+                    f"  Reconnect [{attempt}/{max_try}] "
+                    f"— waiting {sleep_s:.0f}s..."
+                )
+                time.sleep(sleep_s)
+
+                if self._try_connect():
+                    # ── สำเร็จ ──────────────────────────────
+                    self._conn_stats.total_reconnects += 1
+                    self._conn_stats.last_reconnect_at = (
+                        datetime.now(timezone.utc).isoformat()
+                    )
+                    now_str = datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M UTC"
+                    )
+                    log.info(
+                        f"✅ MT5 reconnected (attempt {attempt}) "
+                        f"@ {now_str}"
+                    )
+                    self._notify(
+                        f"✅ *MT5 Reconnected*\n"
+                        f"Attempt: {attempt}/{max_try}\n"
+                        f"Time: `{now_str}`"
+                    )
+                    return True
+
+                # ── ล้มเหลว ──────────────────────────────────
+                log.warning(f"  Attempt {attempt} failed")
+                self._conn_stats.failed_reconnects += 1
+
+                if attempt == alert_at:
+                    self._notify(
+                        f"⚠️ *MT5 Reconnect Warning*\n"
+                        f"Failed {alert_at} times — still trying...\n"
+                        f"Check MT5 terminal & network."
+                    )
+
+            # ── หมด retry ─────────────────────────────────────
+            log.critical(
+                f"❌ MT5 reconnect FAILED after {max_try} attempts"
+            )
+            self._notify(
+                f"🚨 *MT5 Reconnect FAILED*\n"
+                f"Gave up after {max_try} attempts.\n"
+                f"Bot is PAUSED — manual intervention required.\n"
+                f"Check MT5 terminal, broker server, network."
+            )
+            return False
 
     def ensure_connected(self) -> bool:
         """
-        ตรวจ connection — reconnect อัตโนมัติถ้าหลุด
-        เรียกก่อนทุก operation ที่สำคัญ
-        """
-        # Ping ถ้าถึงเวลา
-        now = time.time()
-        if now - self._last_ping >= self._ping_interval:
-            if not self._ping():
-                log.warning("Ping failed — reconnecting...")
-                self._connected = False
+        One-liner ให้ main.py เรียกทุก cycle
 
-        if self._connected:
+        Logic:
+          1. throttle — ถ้าเพิ่งเช็คไปไม่ถึง health_check_interval วินาที
+             → คืนค่าสถานะล่าสุดเลย (ไม่เปลืองเวลา)
+          2. health_check() → ถ้า OK คืน True
+          3. ถ้า health_check ล้มเหลว → reconnect()
+
+        Returns:
+            True  = connected พร้อมเทรด
+            False = reconnect ล้มเหลว → ควร skip cycle นี้
+        """
+        from config import get_config
+        cfg_rc      = get_config().get("mt5", {}).get("reconnect", {})
+        hc_interval = int(cfg_rc.get("health_check_interval", 60))
+
+        now = datetime.now(timezone.utc)
+        if self._hc_last_check is not None:
+            elapsed = (now - self._hc_last_check).total_seconds()
+            if elapsed < hc_interval:
+                # เพิ่งเช็คไปหยกๆ → ถือว่าสถานะเดิมยังถูกต้อง
+                return self._conn_stats.is_connected
+
+        # ถึงเวลาเช็คจริง
+        if self.health_check():
             return True
 
-        # Reconnect
-        return self._reconnect()
+        # health_check ล้มเหลว → พยายาม reconnect
+        return self.reconnect()
 
-    def _ping(self) -> bool:
+    def get_connection_stats(self) -> dict:
         """
-        ตรวจว่า connection ยังอยู่
-        ใช้ terminal_info() เพราะเบากว่า account_info()
+        สรุป connection statistics
+        ใช้สำหรับ /status ใน Telegram หรือ dashboard
+
+        Example:
+            conn = client.get_connection_stats()
+            print(f"reconnects={conn['total_reconnects']} "
+                  f"rate={conn['reconnect_success_rate']}%")
         """
+        stats = self._conn_stats
+        return {
+            "connected"             : stats.is_connected,
+            "total_disconnects"     : stats.total_disconnects,
+            "total_reconnects"      : stats.total_reconnects,
+            "failed_reconnects"     : stats.failed_reconnects,
+            "reconnect_success_rate": round(stats.reconnect_success_rate, 1),
+            "last_connected_at"     : stats.last_connected_at,
+            "last_disconnect_at"    : stats.last_disconnect_at,
+            "last_reconnect_at"     : stats.last_reconnect_at,
+            "uptime_seconds"        : round(stats.uptime_seconds, 0),
+        }
+
+    # ══════════════════════════════════════════════════════════
+    # PRIVATE HELPERS (Reconnect Layer)
+    # ══════════════════════════════════════════════════════════
+
+    def _try_connect(self) -> bool:
+        """
+        1 attempt: shutdown → initialize → login → health_check
+        คืน True ถ้าสำเร็จ ใช้โดย reconnect() เท่านั้น
+        """
+        mt5_cfg = {}
         try:
-            info = mt5.terminal_info()
-            if info is None:
+            from config import get_config
+            mt5_cfg = get_config().get("mt5", {})
+        except Exception:
+            pass   # fallback ไปใช้ env vars
+
+        path   = mt5_cfg.get("terminal_path") or self._terminal_path
+        login  = int(mt5_cfg.get("login")     or self._login)
+        pw     = mt5_cfg.get("password")      or self._password
+        server = mt5_cfg.get("server")        or self._server
+
+        try:
+            # Step 1: cleanup ก่อน
+            mt5.shutdown()
+            time.sleep(2)
+
+            # Step 2: initialize terminal
+            init_ok = (
+                mt5.initialize(path=path) if path
+                else mt5.initialize()
+            )
+            if not init_ok:
+                log.debug(f"_try_connect: initialize() failed — {mt5.last_error()}")
                 return False
 
-            self._last_ping = time.time()
+            # Step 3: login
+            if not mt5.login(login, password=pw, server=server):
+                log.debug(f"_try_connect: login() failed — {mt5.last_error()}")
+                mt5.shutdown()
+                return False
+
+            # Step 4: verify (ผ่าน health_check ซึ่งเช็ค 3 ชั้น)
+            if not self.health_check():
+                log.debug("_try_connect: health_check failed after login")
+                return False
+
+            # สำเร็จ — อัปเดต state
+            self._connected                    = True
+            self._connected_at                 = datetime.now(timezone.utc)
+            self._conn_stats.is_connected      = True
+            self._conn_stats.last_connected_at = self._connected_at.isoformat()
             return True
 
-        except Exception:
+        except Exception as e:
+            log.debug(f"_try_connect exception: {e}")
             return False
 
-    def _reconnect(self) -> bool:
+    def _mark_disconnected(self):
         """
-        Reconnect พร้อม exponential backoff
-        พยายาม max_retries ครั้งก่อน raise error
+        บันทึก disconnect event (เรียกโดย health_check เมื่อตรวจพบ)
+        Log เฉพาะครั้งแรกที่หลุด (ไม่ spam log ซ้ำ)
         """
-        from bot.notifier import notify
-
-        for attempt in range(1, self._max_retries + 1):
-            delay = self._retry_delay * attempt   # 10, 20, 30, 40, 50 วินาที
+        if self._conn_stats.is_connected:
+            self._conn_stats.is_connected       = False
+            self._connected                     = False
+            self._conn_stats.total_disconnects += 1
+            now = datetime.now(timezone.utc).isoformat()
+            self._conn_stats.last_disconnect_at = now
+            self._conn_stats.uptime_seconds     = 0.0
             log.warning(
-                f"Reconnect attempt {attempt}/{self._max_retries} "
-                f"(waiting {delay}s)..."
+                f"⚡ MT5 disconnection detected "
+                f"(total: {self._conn_stats.total_disconnects})"
             )
-            time.sleep(delay)
 
-            mt5.shutdown()   # cleanup ก่อน
+    def _notify(self, msg: str):
+        """ส่ง Telegram notification (ถ้า notify_telegram: true ใน config)"""
+        try:
+            from config import get_config
+            if get_config().get("mt5", {}).get(
+                "reconnect", {}
+            ).get("notify_telegram", True):
+                from bot.notifier import notify
+                notify(msg)
+        except Exception:
+            pass   # notification ล้มเหลวไม่กระทบ reconnect logic
 
-            if self.connect():
-                log.info(
-                    f"✅ Reconnected after {attempt} attempt(s)"
-                )
-                notify(
-                    f"🔄 MT5 Reconnected "
-                    f"(attempt {attempt})"
-                )
-                return True
-
-        log.critical(
-            f"❌ Cannot reconnect after {self._max_retries} attempts"
-        )
-        notify(
-            f"🚨 *MT5 Connection Lost*\n"
-            f"Cannot reconnect after {self._max_retries} attempts\n"
-            f"Bot stopping..."
-        )
-        return False
+    # ══════════════════════════════════════════════════════════
+    # Private Helpers (original)
+    # ══════════════════════════════════════════════════════════
+    # NOTE: _ping() และ _reconnect() ถูกแทนที่ด้วย
+    #       health_check() และ reconnect() ด้านบนแล้ว
 
     def _activate_symbols(self):
         """
@@ -247,9 +496,7 @@ class MT5Client:
         symbols = cfg['symbols']['active']
         for sym in symbols:
             if not mt5.symbol_select(sym, True):
-                log.warning(
-                    f"Cannot activate symbol: {sym}"
-                )
+                log.warning(f"Cannot activate symbol: {sym}")
             else:
                 log.debug(f"Symbol activated: {sym}")
 
@@ -529,20 +776,20 @@ class MT5Client:
             raise ValueError(f"Symbol ไม่พบ: {symbol}")
 
         spec = {
-            'symbol'        : symbol,
-            'digits'        : info.digits,
-            'point'         : info.point,
+            'symbol'             : symbol,
+            'digits'             : info.digits,
+            'point'              : info.point,
             'trade_contract_size': info.trade_contract_size,
-            'volume_min'    : info.volume_min,
-            'volume_max'    : info.volume_max,
-            'volume_step'   : info.volume_step,
-            'tick_size'     : info.trade_tick_size,
-            'tick_value'    : info.trade_tick_value,
-            'currency_profit': info.currency_profit,
-            'currency_base' : info.currency_base,
-            'spread_current': info.spread,
-            'swap_long'     : info.swap_long,
-            'swap_short'    : info.swap_short,
+            'volume_min'         : info.volume_min,
+            'volume_max'         : info.volume_max,
+            'volume_step'        : info.volume_step,
+            'tick_size'          : info.trade_tick_size,
+            'tick_value'         : info.trade_tick_value,
+            'currency_profit'    : info.currency_profit,
+            'currency_base'      : info.currency_base,
+            'spread_current'     : info.spread,
+            'swap_long'          : info.swap_long,
+            'swap_short'         : info.swap_short,
         }
 
         self._symbol_cache[symbol] = spec
@@ -594,10 +841,12 @@ class MT5Client:
         """
         สถานะ connection ทั้งหมด
         ใช้ใน health check และ dashboard
+        รวม ConnectionStats ใหม่ด้วย
         """
         try:
             terminal = mt5.terminal_info()
             account  = mt5.account_info()
+            conn_s   = self.get_connection_stats()   # NEW
 
             return {
                 'connected'        : self._connected,
@@ -606,7 +855,7 @@ class MT5Client:
                     self._last_ping, tz=timezone.utc
                 ).isoformat() if self._last_ping else None,
                 'terminal_version' : (
-                    terminal.build        # ✅ FIX BUG-8: .community_version ไม่มีใน MT5 API — ใช้ .build แทน
+                    terminal.build        # ✅ FIX BUG-8: .build แทน .community_version
                     if terminal else None
                 ),
                 'account_login'    : (
@@ -615,6 +864,11 @@ class MT5Client:
                 'account_balance'  : (
                     account.balance if account else None
                 ),
+                # ── Reconnect stats (NEW) ──────────────────
+                'total_reconnects' : conn_s['total_reconnects'],
+                'total_disconnects': conn_s['total_disconnects'],
+                'reconnect_rate'   : conn_s['reconnect_success_rate'],
+                'uptime_seconds'   : conn_s['uptime_seconds'],
             }
         except Exception as e:
             return {
@@ -627,5 +881,6 @@ class MT5Client:
             f"MT5Client("
             f"login={self._login} "
             f"server={self._server} "
-            f"connected={self._connected})"
+            f"connected={self._connected} "
+            f"reconnects={self._conn_stats.total_reconnects})"
         )

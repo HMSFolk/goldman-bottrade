@@ -11,11 +11,21 @@ mt5:
   # timeout รอ MT5 response (วินาที)
   timeout_sec: 30
 
-  # reconnect กี่ครั้งถ้าหลุด
+  # reconnect กี่ครั้งถ้าหลุด (legacy — ยังคงไว้ backward compat)
   max_reconnect_attempts: 5
 
-  # รอกี่วินาทีระหว่าง reconnect attempt
+  # รอกี่วินาทีระหว่าง reconnect attempt (legacy)
   reconnect_delay_sec: 10
+
+  # ── Auto-Reconnect (ใหม่) ──────────────────────────────────
+  reconnect:
+    enabled              : true
+    max_retries          : 10    # retry สูงสุด 10 ครั้ง
+    base_sleep_sec       : 5     # เริ่มที่ 5s → 10 → 20 → 40 → ... → 300s
+    max_sleep_sec        : 300   # สูงสุด 5 นาทีต่อครั้ง
+    health_check_interval: 60    # ตรวจ connection ทุก 60 วินาที (ไม่ตรวจทุก tick)
+    alert_after_retries  : 3     # ส่ง Telegram เมื่อ retry ครั้งที่ 3
+    notify_telegram      : true  # ส่ง alert ทุก reconnect event
 
 
 # ── 2. SYMBOLS ───────────────────────────────────────────────
@@ -250,7 +260,7 @@ logging:
   max_file_size_mb: 10
   backup_count: 5         # เก็บ log ย้อนหลัง 5 ไฟล์
 
-# ── 13.News Filter ───────────────────────────────────────────────
+# ── 13. News Filter ──────────────────────────────────────────
 news_filter:
   enabled: true
   buffer_minutes: 30        # บล็อก 30 นาทีก่อน/หลังข่าว
@@ -259,11 +269,11 @@ news_filter:
   cache_hours: 6            # refresh ทุก 6 ชั่วโมง
   keywords: []              # เพิ่ม keywords พิเศษถ้าต้องการ
 
-# ── 14.API Keys ──────────────────────────────────────────────────
+# ── 14. API Keys ─────────────────────────────────────────────
 api_keys:
-  finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0" # ใส่ keyfinnhub.io
+  finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0" # ใส่ key finnhub.io
 
-# ── 15.Spread Filter ─────────────────────────────────────────────
+# ── 15. Spread Filter ────────────────────────────────────────
 spread_filter:
   enabled    : true
   fail_open  : true     # true = ให้เทรดต่อถ้า MT5 ดึง tick ไม่ได้
