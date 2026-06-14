@@ -24,6 +24,7 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
+from dashboard.app_live_compare import show_live_vs_backtest
 
 # ── Page Config ────────────────────────────────────────────────
 st.set_page_config(

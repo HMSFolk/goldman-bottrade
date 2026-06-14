@@ -14,10 +14,11 @@ Startup sequence:
 
 Defense layers ทุก tick:
   [1] Manual pause flag
-  [2] MT5 connection  → auto-reconnect (ensure_connected)
-  [3] Circuit breaker → auto-pause
-  [4] News window     → skip tick
-  [5] Per-symbol: spread → signal → execute
+  [2] MT5 connection     → auto-reconnect (ensure_connected)
+  [3] Circuit breaker    → auto-pause
+  [4] News window        → skip tick
+  [4.5] Regime detection → skip tick ถ้า volatile/low-conf  ← ใหม่
+  [5] Per-symbol: spread → regime-aware signal → execute
 ════════════════════════════════════════════════════════════
 """
 import logging
@@ -53,6 +54,9 @@ from bot.notifier        import notify
 from features.pipeline   import build_features_live
 from models.strategies   import ACTIVE_STRATEGY
 
+# [import] NEW — Regime Detection ──────────────────────────────
+from features.regime import RegimeDetector
+
 
 # ══════════════════════════════════════════════════════════════
 # Bot State
@@ -72,12 +76,13 @@ class BotState:
         self.config_mtime   = Path("config.yaml").stat().st_mtime
 
         # Components (init ใน startup())
-        self.client      : MT5Client     = None
-        self.risk        : RiskManager   = None
-        self.executor    : OrderExecutor = None
-        self.writer      : MetricsWriter = None
-        self.strategy                    = None
-        self.news_filter : NewsFilter    = NewsFilter()
+        self.client          : MT5Client     = None
+        self.risk            : RiskManager   = None
+        self.executor        : OrderExecutor = None
+        self.writer          : MetricsWriter = None
+        self.strategy                        = None
+        self.news_filter     : NewsFilter    = NewsFilter()
+        self.regime_detector : RegimeDetector = None   # [init] NEW
 
         # Cooldown tracking
         # ป้องกันเทรดซ้ำ symbol เดียวกันถี่เกินไป
@@ -156,6 +161,18 @@ def startup():
     STATE.strategy = ACTIVE_STRATEGY()
     log.info("✅ Components initialized")
 
+    # ── 4.5 Init RegimeDetector (NEW) ──────────────────────────
+    # [init ก่อน loop]
+    try:
+        STATE.regime_detector = RegimeDetector()
+        log.info("✅ RegimeDetector initialized")
+    except Exception as e:
+        log.warning(
+            f"⚠️  RegimeDetector init failed (non-fatal): {e} "
+            f"— regime filter ถูกปิด"
+        )
+        STATE.regime_detector = None
+
     # ── 5. Quick Data Update ───────────────────────────────────
     log.info("📊 Updating market data...")
     try:
@@ -189,6 +206,7 @@ def startup():
         f"Strategy: v{ACTIVE_STRATEGY.VERSION}\n"
         f"Symbols: {', '.join(STATE.symbols)}\n"
         f"Balance: ${acc['balance']:,.2f}\n"
+        f"Regime: {'ON' if STATE.regime_detector else 'OFF'}\n"
         f"Time: {_now_str()}"
     )
 
@@ -215,7 +233,7 @@ def _check_models_exist() -> list:
 def run_tick(symbol: str):
     """
     1 tick สำหรับ 1 symbol
-    ราคา → features → predict → (order ถ้า signal ดี)
+    ราคา → features → regime check → predict → (order ถ้า signal ดี)
     """
     t0 = time.time()
 
@@ -229,6 +247,30 @@ def run_tick(symbol: str):
         if STATE.news_filter.is_news_window(symbol=symbol):
             log.info(f"⚠️  {symbol}: news window — skip")
             return
+
+        # ── 1.7 Regime Detection (NEW) ────────────────────────
+        # [ใน loop — หลัง news filter, ก่อน signal gen]
+        regime = None
+        if STATE.regime_detector is not None:
+            try:
+                regime = STATE.regime_detector.detect_from_mt5(
+                    symbol="XAUUSDm", timeframe="H4", bars=300
+                )
+                log.info(f"  [{symbol}] Regime: {regime}")
+
+                if not regime.should_trade:        # volatile + low confidence
+                    log.info(
+                        f"  [{symbol}] regime={regime} "
+                        f"— skip tick (volatile/low-conf)"
+                    )
+                    return
+
+            except Exception as e:
+                log.warning(
+                    f"  [{symbol}] Regime detection error: {e} "
+                    f"— continue without regime filter"
+                )
+                regime = None
 
         # ── 2. ตรวจ daily loss limit ──────────────────────────
         acc = STATE.client.get_account()
@@ -249,7 +291,6 @@ def run_tick(symbol: str):
         # ── 3. ดึงราคาล่าสุด ─────────────────────────────────
         # ✅ FIX BUG-3: เพิ่ม H4, D1, W1 ที่ขาดหายไป
         # ✅ FIX BUG-4: ส่ง string "M15" ให้ get_ohlcv ไม่ใช่ integer
-        #    (TF_MAP conversion อยู่ใน mt5_client.get_ohlcv แล้ว)
         valid_tfs  = {"M1","M5","M15","M30","H1","H4","D1","W1"}
         primary_tf = STATE.timeframe
         if primary_tf not in valid_tfs:
@@ -284,8 +325,37 @@ def run_tick(symbol: str):
             log.info(f"{symbol}: cooldown active — skip")
             return
 
-        # ── 7. Send Order ─────────────────────────────────────
-        if setup.is_valid:
+        # ── 7. Regime-Aware Signal (NEW) ──────────────────────
+        # [3] แก้ call: ensemble.predict() → ensemble.predict_with_regime()
+        #
+        # ถ้า strategy มี ensemble และ detect regime ได้
+        #   → ใช้ predict_with_regime() เป็น final gate ก่อน execute
+        # ถ้าไม่มี → fallback ไป setup.is_valid ตามเดิม
+        if regime is not None and hasattr(STATE.strategy, 'ensemble'):
+            # ใหม่: regime-aware signal
+            reg_result = STATE.strategy.ensemble.predict_with_regime(
+                df, regime, symbol
+            )
+            is_valid = reg_result["should_trade"]
+
+            if not is_valid:
+                log.info(
+                    f"  [{symbol}] predict_with_regime BLOCKED: "
+                    f"{reg_result['block_reason']}"
+                )
+                return
+
+            log.info(
+                f"  [{symbol}] predict_with_regime OK "
+                f"conf={reg_result['signal'].confidence:.3f} "
+                f"threshold={reg_result['threshold_used']:.3f}"
+            )
+        else:
+            # fallback: ใช้ strategy.evaluate ตามเดิม
+            is_valid = setup.is_valid
+
+        # ── 8. Send Order ─────────────────────────────────────
+        if is_valid:
             result = STATE.executor.send_order(
                 symbol      = symbol,
                 direction   = setup.direction,
@@ -296,6 +366,9 @@ def run_tick(symbol: str):
                     f"v{ACTIVE_STRATEGY.VERSION}_"
                     f"{setup.session}_"
                     f"c{setup.confidence:.2f}"
+                    + (f"_r{regime.state.name}"
+                       if regime is not None and hasattr(regime.state, 'name')
+                       else "")
                 ),
             )
 
@@ -396,7 +469,7 @@ def run_all_symbols():
         # CB auto-resumed → clear flag ถ้า CB ไม่ triggered
         STATE.set_pause(False)
 
-    # ── [4][5] Per-symbol (news + signal + execute) ───────────
+    # ── [4][4.5][5] Per-symbol ────────────────────────────────
     for sym in CFG['symbols']['active']:
         run_tick(sym)
 
@@ -428,7 +501,7 @@ def _daily_summary():
     try:
         acc     = STATE.client.get_account()
         summary = STATE.writer.get_daily_summary()
-        conn    = STATE.client.get_connection_stats()   # NEW
+        conn    = STATE.client.get_connection_stats()
 
         notify(
             f"📊 *Daily Summary*\n"
@@ -438,8 +511,8 @@ def _daily_summary():
             f"Trades:  {summary.get('trades',0)}\n"
             f"Win Rate:{summary.get('win_rate',0):.1%}\n"
             f"Ticks:   {STATE.tick_count}\n"
-            f"MT5 Reconnects: {conn['total_reconnects']} "    # NEW
-            f"(success {conn['reconnect_success_rate']}%)"    # NEW
+            f"MT5 Reconnects: {conn['total_reconnects']} "
+            f"(success {conn['reconnect_success_rate']}%)"
         )
 
         # Reset daily tracking

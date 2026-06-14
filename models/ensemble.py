@@ -2,6 +2,7 @@
 """
 Ensemble Trader — รวม XGB + LGBM + LSTM
 โหวตสัญญาณด้วย Weighted Soft Voting
+รองรับ Regime-Aware Weighting (เพิ่มใหม่)
 """
 
 import sys
@@ -26,6 +27,13 @@ from typing import Optional
 # ✅ FIX BUG-2: ใช้ get_config() แทน yaml.safe_load โดยตรง
 from config import get_config
 CFG = get_config()
+
+# [1] NEW — Regime imports ─────────────────────────────────────
+from features.regime import (
+    RegimeState,
+    REGIME_MODEL_WEIGHTS,
+    REGIME_CONFIDENCE_THRESHOLDS,
+)
 
 log = logging.getLogger("models")
 
@@ -70,7 +78,7 @@ class EnsembleSignal:
     n_agree:        int           # กี่โมเดลเห็นตรงกัน
     n_models:       int           # โมเดลที่ available ทั้งหมด
     conflict_score: float         # ระดับความขัดแย้ง (0=ตรงกัน 1=ขัดทั้งหมด)
-    method:         str           # "soft_voting" | "hard_voting"
+    method:         str           # "soft_voting" | "hard_voting" | "regime_weighted"
     blocked_reason: str = ""
 
     @property
@@ -110,6 +118,10 @@ class EnsembleTrader:
 
     Weights กำหนดน้ำหนักแต่ละโมเดล
     ปรับได้ใน config.yaml หรือจาก backtest performance
+
+    Regime-Aware Mode (ใหม่):
+    ใช้ predict_with_regime() แทน predict() เพื่อให้น้ำหนัก
+    โมเดลปรับตาม market regime โดยอัตโนมัติ
     """
 
     DEFAULT_WEIGHTS = {
@@ -339,7 +351,7 @@ class EnsembleTrader:
         require_agree: int = 2,        # ต้องมี n models เห็นตรงกัน
     ) -> EnsembleSignal:
         """
-        รวมสัญญาณจากทุกโมเดล
+        รวมสัญญาณจากทุกโมเดล (standard — ไม่ปรับตาม regime)
 
         method:
         - "soft"  = weighted average probability (แนะนำ)
@@ -347,41 +359,7 @@ class EnsembleTrader:
         - "auto"  = soft ถ้า agree ≥ 2 ไม่งั้นใช้ hard
         """
         # ── 1. Predict แต่ละโมเดล ─────────────────────────────
-        predictions = []
-
-        if 'xgb' in self._models:
-            try:
-                predictions.append(self._predict_xgb(df))
-            except Exception as e:
-                log.warning(f"XGB predict ล้มเหลว: {e}")
-                predictions.append(ModelPrediction(
-                    'xgb', 0, 0.0,
-                    np.array([0.33, 0.34, 0.33]),
-                    0, available=False,
-                ))
-
-        if 'lgbm' in self._models:
-            try:
-                predictions.append(self._predict_lgbm(df))
-            except Exception as e:
-                log.warning(f"LGBM predict ล้มเหลว: {e}")
-                predictions.append(ModelPrediction(
-                    'lgbm', 0, 0.0,
-                    np.array([0.33, 0.34, 0.33]),
-                    0, available=False,
-                ))
-
-        if 'lstm' in self._models:
-            try:
-                predictions.append(self._predict_lstm(df))
-            except Exception as e:
-                log.warning(f"LSTM predict ล้มเหลว: {e}")
-                predictions.append(ModelPrediction(
-                    'lstm', 0, 0.0,
-                    np.array([0.33, 0.34, 0.33]),
-                    0, available=False,
-                ))
-
+        predictions = self._get_model_predictions(df)
         avail_preds = [p for p in predictions if p.available]
         n_models    = len(avail_preds)
 
@@ -450,6 +428,259 @@ class EnsembleTrader:
 
         return signal
 
+    # ══════════════════════════════════════════════════════════
+    # [2] NEW — Regime-Aware Methods
+    # ══════════════════════════════════════════════════════════
+
+    def predict_with_regime(
+        self,
+        df:     pd.DataFrame,
+        regime: "RegimeState",
+        symbol: str,
+    ) -> dict:
+        """
+        Regime-Aware Predict — ปรับ weights + threshold ตาม market regime
+
+        แทน self.weights ปกติ ด้วย REGIME_MODEL_WEIGHTS[regime.state]
+        ใช้ REGIME_CONFIDENCE_THRESHOLDS[regime.state] แทน self.min_conf
+
+        ตัวอย่าง:
+            result = ensemble.predict_with_regime(df, regime, "XAUUSDm")
+            if result["should_trade"]:
+                executor.execute_order(symbol, result["signal"], ...)
+
+        Returns:
+            {
+                "should_trade"  : bool          — True = ส่ง order ได้
+                "signal"        : EnsembleSignal — สัญญาณ (อาจเป็น HOLD ถ้า block)
+                "regime"        : RegimeState   — regime ที่ detect ได้
+                "weights_used"  : dict          — weights ที่ใช้จริง
+                "threshold_used": float         — confidence threshold ที่ใช้
+                "block_reason"  : str           — เหตุผลที่ไม่เทรด (ถ้ามี)
+            }
+        """
+        # ── 1. หา regime-specific weights ──────────────────────
+        weights_used = self._get_regime_weights(regime)
+        log.debug(
+            f"{symbol}: regime={regime.state} "
+            f"weights={weights_used}"
+        )
+
+        # ── 2. ดึง raw predictions ─────────────────────────────
+        predictions = self._get_model_predictions(df)
+
+        # ── 3. รวม predictions ด้วย regime weights ─────────────
+        signal = self._weighted_combine(predictions, weights_used, regime)
+
+        # ── 4. หา regime-specific confidence threshold ──────────
+        threshold = REGIME_CONFIDENCE_THRESHOLDS.get(
+            regime.state, self.min_conf
+        )
+
+        # ── 5. ตัดสินใจ should_trade ──────────────────────────
+        block_reason = ""
+
+        if not signal.is_actionable:
+            block_reason = f"signal blocked: {signal.blocked_reason}"
+
+        elif signal.confidence < threshold:
+            block_reason = (
+                f"confidence ต่ำกว่า regime threshold "
+                f"({signal.confidence:.3f} < {threshold:.3f})"
+            )
+
+        elif hasattr(regime, 'is_volatile_low_conf') and \
+             regime.is_volatile_low_conf:
+            block_reason = "regime volatile + low confidence"
+
+        should_trade = (block_reason == "")
+
+        if not should_trade:
+            log.info(
+                f"{symbol}: predict_with_regime BLOCKED "
+                f"[{regime.state}] — {block_reason}"
+            )
+        else:
+            log.info(
+                f"{symbol}: predict_with_regime OK "
+                f"[{regime.state}] conf={signal.confidence:.3f} "
+                f">= threshold={threshold:.3f}"
+            )
+
+        return {
+            "should_trade"  : should_trade,
+            "signal"        : signal,
+            "regime"        : regime,
+            "weights_used"  : weights_used,
+            "threshold_used": threshold,
+            "block_reason"  : block_reason,
+        }
+
+    def _get_regime_weights(self, regime: "RegimeState") -> dict:
+        """
+        หา model weights ตาม market regime
+
+        ดึงจาก REGIME_MODEL_WEIGHTS ที่ import มาจาก features.regime
+        ถ้า regime.state ไม่อยู่ใน map → fallback ไป self.weights (default)
+
+        ตัวอย่าง REGIME_MODEL_WEIGHTS:
+            {
+                RegimeEnum.TRENDING : {'xgb': 0.50, 'lgbm': 0.30, 'lstm': 0.20},
+                RegimeEnum.RANGING  : {'xgb': 0.30, 'lgbm': 0.50, 'lstm': 0.20},
+                RegimeEnum.VOLATILE : {'xgb': 0.45, 'lgbm': 0.45, 'lstm': 0.10},
+            }
+        """
+        regime_w = REGIME_MODEL_WEIGHTS.get(regime.state)
+
+        if regime_w is None:
+            log.debug(
+                f"regime.state={regime.state} ไม่อยู่ใน REGIME_MODEL_WEIGHTS "
+                f"— ใช้ default weights"
+            )
+            return self.weights.copy()
+
+        # Normalize ให้รวมเป็น 1.0
+        total = sum(regime_w.values()) + 1e-9
+        normalized = {k: v / total for k, v in regime_w.items()}
+
+        log.debug(f"regime weights [{regime.state}]: {normalized}")
+        return normalized
+
+    def _weighted_combine(
+        self,
+        predictions: list,
+        weights:     dict,
+        regime:      "RegimeState",
+    ) -> EnsembleSignal:
+        """
+        รวม model predictions ด้วย weights ที่กำหนดจากภายนอก
+        (Regime-aware version ของ _soft_vote)
+
+        ต่างจาก predict() ตรงที่ใช้ weights ที่รับมาแทน self.weights
+        ทำให้สามารถ override weights ตาม regime ได้
+
+        Parameters:
+            predictions : list[ModelPrediction] จาก _get_model_predictions()
+            weights     : regime-specific weights จาก _get_regime_weights()
+            regime      : RegimeState สำหรับ label ใน EnsembleSignal.method
+        """
+        avail_preds = [p for p in predictions if p.available]
+        n_models    = len(avail_preds)
+
+        if n_models == 0:
+            return EnsembleSignal(
+                direction=0, confidence=0.0,
+                raw_proba=np.array([0.33, 0.34, 0.33]),
+                individual=predictions,
+                n_agree=0, n_models=0,
+                conflict_score=1.0,
+                method="none",
+                blocked_reason="ไม่มีโมเดลที่ใช้งานได้",
+            )
+
+        # ── Weighted Soft Vote ด้วย regime weights ─────────────
+        weighted_proba = np.zeros(3)   # [sell, hold, buy]
+        total_weight   = 0.0
+
+        for pred in avail_preds:
+            w = weights.get(pred.name, 0.0)
+            if w > 0:
+                weighted_proba += w * pred.proba
+                total_weight   += w
+
+        if total_weight > 0:
+            weighted_proba /= total_weight
+
+        # ── Conflict score (ใช้ self._calc_conflict เดิม) ───────
+        conflict_score = self._calc_conflict(avail_preds)
+
+        # ── Direction + Confidence ──────────────────────────────
+        direction  = int(weighted_proba.argmax()) - 1   # 0,1,2 → -1,0,1
+        confidence = float(weighted_proba.max())
+
+        n_agree = sum(
+            1 for p in avail_preds if p.direction == direction
+        )
+
+        # Confidence boost ถ้าทุกตัวเห็นตรงกัน
+        if n_agree == n_models and n_models >= 2:
+            confidence = min(confidence * 1.10, 0.99)
+
+        # ── Block conditions ────────────────────────────────────
+        blocked_reason = self._check_blocks(
+            weighted_proba, conflict_score, n_agree, n_models
+        )
+        if blocked_reason:
+            direction = 0
+
+        regime_label = getattr(regime.state, 'name', str(regime.state))
+
+        return EnsembleSignal(
+            direction      = direction,
+            confidence     = round(confidence, 4),
+            raw_proba      = weighted_proba,
+            individual     = predictions,
+            n_agree        = n_agree,
+            n_models       = n_models,
+            conflict_score = round(conflict_score, 4),
+            method         = f"regime_weighted({regime_label})",
+            blocked_reason = blocked_reason,
+        )
+
+    def _get_model_predictions(
+        self,
+        df: pd.DataFrame,
+    ) -> list:
+        """
+        ดึง raw predictions จากทุกโมเดลที่โหลดแล้ว
+
+        แยกออกมาจาก predict() เพื่อให้ predict_with_regime()
+        และ predict() ใช้ code เดียวกันในการเรียกโมเดล
+        ไม่ต้อง duplicate try/except blocks
+
+        Returns:
+            list[ModelPrediction] — รวมทั้ง available=True และ False
+        """
+        predictions = []
+
+        if 'xgb' in self._models:
+            try:
+                predictions.append(self._predict_xgb(df))
+            except Exception as e:
+                log.warning(f"XGB predict ล้มเหลว: {e}")
+                predictions.append(ModelPrediction(
+                    'xgb', 0, 0.0,
+                    np.array([0.33, 0.34, 0.33]),
+                    0, available=False,
+                ))
+
+        if 'lgbm' in self._models:
+            try:
+                predictions.append(self._predict_lgbm(df))
+            except Exception as e:
+                log.warning(f"LGBM predict ล้มเหลว: {e}")
+                predictions.append(ModelPrediction(
+                    'lgbm', 0, 0.0,
+                    np.array([0.33, 0.34, 0.33]),
+                    0, available=False,
+                ))
+
+        if 'lstm' in self._models:
+            try:
+                predictions.append(self._predict_lstm(df))
+            except Exception as e:
+                log.warning(f"LSTM predict ล้มเหลว: {e}")
+                predictions.append(ModelPrediction(
+                    'lstm', 0, 0.0,
+                    np.array([0.33, 0.34, 0.33]),
+                    0, available=False,
+                ))
+
+        return predictions
+
+    # ══════════════════════════════════════════════════════════
+    # Block Conditions
+    # ══════════════════════════════════════════════════════════
     def _check_blocks(
         self,
         proba:          np.ndarray,

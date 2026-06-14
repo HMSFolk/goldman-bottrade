@@ -319,3 +319,25 @@ circuit_breaker:
     enabled     : true
     max_pct     : 5.0        # หยุดถ้า equity ต่ำกว่า balance > 5%
     warn_pct    : 70         # warn เมื่อถึง 70% ของ limit
+
+#-----20. regime detection settings
+regime_detection:
+  adx_period        : 14
+  adx_trend_thresh  : 25       # ADX > 25 = trending
+  adx_range_thresh  : 20       # ADX < 20 = ranging
+  hurst_trend       : 0.55     # H > 0.55 = persistent
+  hurst_range       : 0.45     # H < 0.45 = mean-reverting
+  atr_lookback      : 100      # historical ATR window
+  vol_high_mult     : 1.5      # ATR ratio > 1.5 = high volatility
+  ema_fast          : 20
+  ema_slow          : 50
+  ema_trend         : 200
+  cache_ttl_minutes : 15       # cache 15 นาที (M15 candle)
+
+#-----21. regime-based model weights (ปรับ tune ได้)
+regime_weights:
+  trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
+  trending_down: {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
+  ranging      : {lgbm: 0.20, xgb: 0.20, lstm: 0.10, rule: 0.50}
+  volatile     : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
+  uncertain    : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
