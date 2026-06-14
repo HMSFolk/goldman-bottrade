@@ -42,42 +42,43 @@ def _add_candle_structure(df: pd.DataFrame) -> pd.DataFrame:
     o, h, l, c = df['open'], df['high'], df['low'], df['close']
     features = {}
 
-    # ── ขนาดพื้นฐาน ───────────────────────────────────────────
-    features['candle_body']        = (c - o).abs()
-    features['candle_range']       = h - l
-    features['candle_upper_wick']  = h - df[['open','close']].max(axis=1)
-    features['candle_lower_wick']  = df[['open','close']].min(axis=1) - l
+    # ── ขนาดพื้นฐาน (Basic Sizes) ──────────────────────────────
+    features['candle_body']       = (c - o).abs()
+    features['candle_range']      = h - l
+    features['candle_upper_wick'] = h - df[['open','close']].max(axis=1)
+    features['candle_lower_wick'] = df[['open','close']].min(axis=1) - l
 
-    # ── สัดส่วน (normalize) ───────────────────────────────────
-    rng = features['candle_range'] + 1e-9   # ป้องกัน division by zero
+    # ── สัดส่วนแท่งเทียน (Ratios) ──────────────────────────────
+    rng = features['candle_range'] + 1e-9   # บวก 1e-9 ป้องกัน Error หารด้วยศูนย์
 
     features['body_ratio']        = features['candle_body'] / rng
     features['upper_wick_ratio']  = features['candle_upper_wick'] / rng
     features['lower_wick_ratio']  = features['candle_lower_wick'] / rng
 
-    # ── ทิศทาง ────────────────────────────────────────────────
-    features['is_bullish']        = (c > o).astype(int)
-    features['is_bearish']        = (c < o).astype(int)
-    features['is_neutral']        = (c == o).astype(int)
+    # ── ทิศทาง (Direction) ──────────────────────────────────
+    features['is_bullish'] = (c > o).astype(int)  # แท่งเขียว
+    features['is_bearish'] = (c < o).astype(int)  # แท่งแดง
+    features['is_neutral'] = (c == o).astype(int) # ราคาเปิดเท่ากับราคาปิด
 
-    # ── ขนาดเทียบค่าเฉลี่ย ────────────────────────────────────
+    # ── ขนาดเทียบกับค่าเฉลี่ย 20 แท่งย้อนหลัง (Relative Size) ───
     avg_range = features['candle_range'].rolling(20).mean()
-    features['relative_range']    = features['candle_range'] / (avg_range + 1e-9)
+    features['relative_range']  = features['candle_range'] / (avg_range + 1e-9)
 
-    features['is_big_candle']     = (features['relative_range'] > 1.5).astype(int)
-    features['is_small_candle']   = (features['relative_range'] < 0.5).astype(int)
+    features['is_big_candle']   = (features['relative_range'] > 1.5).astype(int) # แท่งยาวผิดปกติ
+    features['is_small_candle'] = (features['relative_range'] < 0.5).astype(int) # แท่งสั้น ลังเล
 
-    # ── Close Position ────────────────────────────────────────
-    features['close_position']    = (c - l) / rng
+    # ── ตำแหน่งของราคาปิดเทียบกับทั้งแท่ง (Close Position) ──────
+    # 0 = ปิดล่างสุด (Bearish ขีดสุด), 1 = ปิดบนสุด (Bullish ขีดสุด)
+    features['close_position']  = (c - l) / rng
 
     return pd.concat([df, pd.DataFrame(features, index=df.index)], axis=1)
 
 
 # ══════════════════════════════════════════════════════════════
-# 2. Candle Patterns
+# 2. Candle Patterns — รูปแบบแท่งเทียนที่สำคัญ
 # ══════════════════════════════════════════════════════════════
 def _add_candle_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    o, h, l, c = df['open'], df['high'], df['low'], df['close']
+    o, h, l, c  = df['open'], df['high'], df['low'], df['close']
     body        = df['candle_body']
     rng         = df['candle_range'] + 1e-9
     upper_wick  = df['candle_upper_wick']
@@ -86,58 +87,89 @@ def _add_candle_patterns(df: pd.DataFrame) -> pd.DataFrame:
 
     features = {}
 
-    # ── Single Candle Patterns ─────────────────────────────────
+    # ── Single Candle Patterns (รูปแบบแท่งเดี่ยว) ───────────────
+    # Doji: เนื้อเทียนเล็กมากเมื่อเทียบกับค่าเฉลี่ย
     features['pat_doji'] = (body < avg_body * 0.1).astype(int)
 
+    # Hammer & Hanging Man: ไส้ล่างยาว 2 เท่าของเนื้อ, ไส้บนสั้นมาก
     is_hammer_shape = (lower_wick > body * 2.0) & (upper_wick < body * 0.5) & (body > 0)
-    features['pat_hammer']    = (is_hammer_shape & (c > o)).astype(int) * 1
-    features['pat_hang_man']  = (is_hammer_shape & (c < o)).astype(int) * -1
+    features['pat_hammer']   = (is_hammer_shape & (c > o)).astype(int) * 1    # Bullish Hammer
+    features['pat_hang_man'] = (is_hammer_shape & (c < o)).astype(int) * -1   # Bearish Hanging Man
 
+    # Shooting Star & Inverted Hammer: ไส้บนยาว 2 เท่าของเนื้อ, ไส้ล่างสั้นมาก
     is_star_shape = (upper_wick > body * 2.0) & (lower_wick < body * 0.5) & (body > 0)
     features['pat_shooting_star'] = (is_star_shape & (c < o)).astype(int) * -1
     features['pat_inv_hammer']    = (is_star_shape & (c > o)).astype(int) * 1
 
-    features['pat_bull_marubozu'] = ((c > o) & (body / rng > 0.85) & 
-                                     (upper_wick / rng < 0.05) & (lower_wick / rng < 0.05)).astype(int)
-    features['pat_bear_marubozu'] = ((c < o) & (body / rng > 0.85) & 
-                                     (upper_wick / rng < 0.05) & (lower_wick / rng < 0.05)).astype(int) * -1
+    # Marubozu: เนื้อเทียนเต็มแท่ง (เกิน 85%) แทบไม่มีไส้
+    features['pat_bull_marubozu'] = (
+        (c > o) & (body / rng > 0.85) & (upper_wick / rng < 0.05) & (lower_wick / rng < 0.05)
+    ).astype(int)
+    
+    features['pat_bear_marubozu'] = (
+        (c < o) & (body / rng > 0.85) & (upper_wick / rng < 0.05) & (lower_wick / rng < 0.05)
+    ).astype(int) * -1
 
-    features['pat_spinning_top'] = ((body / rng < 0.3) & (upper_wick / rng > 0.2) & 
-                                    (lower_wick / rng > 0.2)).astype(int)
+    # Spinning Top: ลังเล ไส้บนและล่างยาว เนื้อเทียนเล็ก
+    features['pat_spinning_top'] = (
+        (body / rng < 0.3) & (upper_wick / rng > 0.2) & (lower_wick / rng > 0.2)
+    ).astype(int)
 
-    # ── Two-Candle Patterns ────────────────────────────────────
+    # ── Two-Candle Patterns (รูปแบบ 2 แท่ง) ──────────────────
     prev_o, prev_c, prev_body = o.shift(1), c.shift(1), body.shift(1)
 
-    features['pat_bull_engulf'] = ((c > o) & (prev_c < prev_o) & (o <= prev_c) & 
-                                   (c >= prev_o) & (body > prev_body * 0.8)).astype(int)
-    features['pat_bear_engulf'] = ((c < o) & (prev_c > prev_o) & (o >= prev_c) & 
-                                   (c <= prev_o) & (body > prev_body * 0.8)).astype(int) * -1
+    # Engulfing (กลืนกิน): แท่งปัจจุบันใหญ่กว่าและกลืนแท่งก่อนหน้า
+    features['pat_bull_engulf'] = (
+        (c > o) & (prev_c < prev_o) & (o <= prev_c) & (c >= prev_o) & (body > prev_body * 0.8)
+    ).astype(int)
+    
+    features['pat_bear_engulf'] = (
+        (c < o) & (prev_c > prev_o) & (o >= prev_c) & (c <= prev_o) & (body > prev_body * 0.8)
+    ).astype(int) * -1
 
-    features['pat_bull_harami'] = ((c > o) & (prev_c < prev_o) & (o > prev_c) & (o < prev_o) & 
-                                   (c > prev_c) & (c < prev_o) & (body < prev_body * 0.6)).astype(int)
-    features['pat_bear_harami'] = ((c < o) & (prev_c > prev_o) & (o < prev_c) & (o > prev_o) & 
-                                   (c < prev_c) & (c > prev_o) & (body < prev_body * 0.6)).astype(int) * -1
+    # Harami (คนท้อง): แท่งปัจจุบันเล็กและอยู่ในระยะเนื้อเทียนแท่งก่อนหน้า
+    features['pat_bull_harami'] = (
+        (c > o) & (prev_c < prev_o) & (o > prev_c) & (o < prev_o) & 
+        (c > prev_c) & (c < prev_o) & (body < prev_body * 0.6)
+    ).astype(int)
+    
+    features['pat_bear_harami'] = (
+        (c < o) & (prev_c > prev_o) & (o < prev_c) & (o > prev_o) & 
+        (c < prev_c) & (c > prev_o) & (body < prev_body * 0.6)
+    ).astype(int) * -1
 
+    # Tweezer: จุดต่ำสุด (Bottom) หรือจุดสูงสุด (Top) เท่ากัน
     features['pat_tweezer_bottom'] = ((l.round(1) == l.shift(1).round(1)) & (c < o).shift(1) & (c > o)).astype(int)
     features['pat_tweezer_top']    = ((h.round(1) == h.shift(1).round(1)) & (c > o).shift(1) & (c < o)).astype(int) * -1
 
-    # ── Three-Candle Patterns ──────────────────────────────────
+    # ── Three-Candle Patterns (รูปแบบ 3 แท่ง) ────────────────
     prev2_c, prev2_o = c.shift(2), o.shift(2)
 
-    features['pat_3_white_soldiers'] = ((c > o) & (prev_c > prev_o) & (prev2_c > prev2_o) & 
-                                        (c > prev_c) & (prev_c > prev2_c) & (df['body_ratio'] > 0.6) & 
-                                        (df['body_ratio'].shift(1) > 0.6) & (df['body_ratio'].shift(2) > 0.6)).astype(int)
+    # 3 White Soldiers / 3 Black Crows: แท่งเทียนสีเดียวกัน 3 แท่งติดและมีขนาดเนื้อเทียนใหญ่
+    features['pat_3_white_soldiers'] = (
+        (c > o) & (prev_c > prev_o) & (prev2_c > prev2_o) & 
+        (c > prev_c) & (prev_c > prev2_c) & (df['body_ratio'] > 0.6) & 
+        (df['body_ratio'].shift(1) > 0.6) & (df['body_ratio'].shift(2) > 0.6)
+    ).astype(int)
 
-    features['pat_3_black_crows'] = ((c < o) & (prev_c < prev_o) & (prev2_c < prev2_o) & 
-                                     (c < prev_c) & (prev_c < prev2_c) & (df['body_ratio'] > 0.6) & 
-                                     (df['body_ratio'].shift(1) > 0.6) & (df['body_ratio'].shift(2) > 0.6)).astype(int) * -1
+    features['pat_3_black_crows'] = (
+        (c < o) & (prev_c < prev_o) & (prev2_c < prev2_o) & 
+        (c < prev_c) & (prev_c < prev2_c) & (df['body_ratio'] > 0.6) & 
+        (df['body_ratio'].shift(1) > 0.6) & (df['body_ratio'].shift(2) > 0.6)
+    ).astype(int) * -1
 
-    features['pat_morning_star'] = ((prev2_c < prev2_o) & (features['pat_doji'].shift(1) == 1) & 
-                                    (c > o) & (c > (prev2_o + prev2_c) / 2)).astype(int)
-    features['pat_evening_star'] = ((prev2_c > prev2_o) & (features['pat_doji'].shift(1) == 1) & 
-                                    (c < o) & (c < (prev2_o + prev2_c) / 2)).astype(int) * -1
+    # Morning Star / Evening Star: รูปแบบกลับตัวที่มี Doji คั่นกลาง
+    features['pat_morning_star'] = (
+        (prev2_c < prev2_o) & (features['pat_doji'].shift(1) == 1) & 
+        (c > o) & (c > (prev2_o + prev2_c) / 2)
+    ).astype(int)
+    
+    features['pat_evening_star'] = (
+        (prev2_c > prev2_o) & (features['pat_doji'].shift(1) == 1) & 
+        (c < o) & (c < (prev2_o + prev2_c) / 2)
+    ).astype(int) * -1
 
-    # ── Pattern Strength Score ─────────────────────────────────
+    # ── Pattern Strength Score (รวมคะแนนรูปแบบแท่งเทียน) ────
     bullish_cols = ['pat_hammer', 'pat_inv_hammer', 'pat_bull_marubozu', 'pat_bull_engulf', 'pat_bull_harami', 'pat_tweezer_bottom', 'pat_3_white_soldiers', 'pat_morning_star']
     bearish_cols = ['pat_shooting_star', 'pat_bear_marubozu', 'pat_bear_engulf', 'pat_bear_harami', 'pat_tweezer_top', 'pat_3_black_crows', 'pat_evening_star']
 
@@ -149,13 +181,14 @@ def _add_candle_patterns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════
-# 3. Pivot Points
+# 3. Pivot Points — แนวรับแนวต้านตามสมการมาตรฐาน
 # ══════════════════════════════════════════════════════════════
 def _add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
     h, l, c = df['high'].shift(1), df['low'].shift(1), df['close'].shift(1)
     cur = df['close']
     features = {}
 
+    # ── Classic Pivot Points ──────────────────────────────────
     p = (h + l + c) / 3
     features['pivot']    = p
     features['pivot_r1'] = 2 * p - l
@@ -165,18 +198,21 @@ def _add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
     features['pivot_s2'] = p - (h - l)
     features['pivot_s3'] = l - 2 * (h - p)
 
+    # ── Camarilla Pivot Points (มักใช้เทรดสั้นแบบ Intraday) ────
     rng = h - l
     features['cam_r4'] = c + rng * 1.1 / 2
     features['cam_r3'] = c + rng * 1.1 / 4
     features['cam_s3'] = c - rng * 1.1 / 4
     features['cam_s4'] = c - rng * 1.1 / 2
 
+    # ── ระยะห่างของราคาปัจจุบันเทียบกับ Pivot Levels (%) ────────
     features['dist_pivot_pct'] = (cur - p) / cur * 100
     features['dist_r1_pct']    = (features['pivot_r1'] - cur) / cur * 100
     features['dist_s1_pct']    = (cur - features['pivot_s1']) / cur * 100
     features['dist_r2_pct']    = (features['pivot_r2'] - cur) / cur * 100
     features['dist_s2_pct']    = (cur - features['pivot_s2']) / cur * 100
 
+    # ── ค้นหา Level ที่อยู่ใกล้ราคาปัจจุบันมากที่สุด ───────────────
     levels = pd.DataFrame({
         'r2': features['pivot_r2'], 'r1': features['pivot_r1'],
         'p' : features['pivot'],
@@ -184,10 +220,11 @@ def _add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
     })
     dist_to_levels = levels.sub(cur, axis=0).abs()
     
-    # แก้อาการ FutureWarning
+    # ใช้ skipna=True เพื่อแก้ปัญหาคำเตือนของ Pandas
     features['nearest_pivot_level'] = dist_to_levels.idxmin(axis=1, skipna=True)
     features['nearest_pivot_dist']  = dist_to_levels.min(axis=1) / cur * 100
 
+    # เช็คว่าราคา "แตะ" หรือเข้าใกล้ Level ต่างๆ หรือไม่ (Tolerance 0.15%)
     tolerance = 0.0015
     features['near_r1'] = (features['dist_r1_pct'].abs() < tolerance * 100).astype(int)
     features['near_s1'] = (features['dist_s1_pct'].abs() < tolerance * 100).astype(int)
@@ -198,34 +235,40 @@ def _add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════
-# 4. Support / Resistance
+# 4. Support / Resistance — แนวรับแนวต้านแบบพลวัต
 # ══════════════════════════════════════════════════════════════
 def _add_support_resistance(df: pd.DataFrame) -> pd.DataFrame:
     h, l, c = df['high'], df['low'], df['close']
     features = {}
 
+    # ── Rolling High/Low (จุดสูงสุด/ต่ำสุดย้อนหลัง) ──────────────
     for period in [20, 50, 100, 200]:
         roll_h = h.rolling(period).max()
         roll_l = l.rolling(period).min()
         features[f'rolling_high_{period}'] = roll_h
         features[f'rolling_low_{period}']  = roll_l
 
+        # หาระยะห่าง % จากกรอบราคา
         features[f'dist_high_{period}_pct'] = (roll_h - c) / c * 100
         features[f'dist_low_{period}_pct']  = (c - roll_l) / c * 100
 
+        # ราคาชนกรอบ High/Low (Breakout setup)
         features[f'near_high_{period}'] = (c >= roll_h * 0.998).astype(int)
         features[f'near_low_{period}']  = (c <= roll_l * 1.002).astype(int)
 
+    # ── Breakout Detection (ตรวจจับการทะลุกรอบ) ──────────────
     features['breakout_up_20']   = ((c > features['rolling_high_20'].shift(1)) & (c.shift(1) <= features['rolling_high_20'].shift(2))).astype(int)
     features['breakout_down_20'] = ((c < features['rolling_low_20'].shift(1)) & (c.shift(1) >= features['rolling_low_20'].shift(2))).astype(int)
     features['breakout_up_50']   = (c > features['rolling_high_50'].shift(1)).astype(int)
     features['breakout_down_50'] = (c < features['rolling_low_50'].shift(1)).astype(int)
 
-    round_level = 50
+    # ── Round Numbers (ตัวเลขกลมๆ ที่มีผลทางจิตวิทยา เช่น 2400) ──
+    round_level = 50 # สำหรับทองคำ ตัวเลขทุกๆ 50 มีความหมาย
     nearest_round = (c / round_level).round() * round_level
     features['dist_round_num_pct'] = (c - nearest_round).abs() / c * 100
     features['near_round_number']  = (features['dist_round_num_pct'] < 0.2).astype(int)
 
+    # ── Trend Confirmation ──────────────────────────────────
     features['above_all_highs'] = ((c > features['rolling_high_20']) & (c > features['rolling_high_50']) & (c > features['rolling_high_100'])).astype(int)
     features['below_all_lows']  = ((c < features['rolling_low_20']) & (c < features['rolling_low_50']) & (c < features['rolling_low_100'])).astype(int)
 
@@ -233,27 +276,31 @@ def _add_support_resistance(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════
-# 5. Price Position
+# 5. Price Position — บริบทของราคา ณ ปัจจุบัน
 # ══════════════════════════════════════════════════════════════
 def _add_price_position(df: pd.DataFrame) -> pd.DataFrame:
     c, h, l = df['close'], df['high'], df['low']
     features = {}
 
+    # ── ตำแหน่งราคาเทียบกับกรอบ (0=ขอบล่าง, 1=ขอบบน) ───────────
     for period in [20, 50, 100]:
         period_h, period_l = h.rolling(period).max(), l.rolling(period).min()
         period_r = period_h - period_l + 1e-9
         features[f'price_pos_{period}'] = (c - period_l) / period_r
 
+    # แบ่งเป็น 5 โซน เพื่อให้ AI เข้าใจความถูกแพงในระยะสั้น
     features['price_zone_20'] = pd.cut(
         features['price_pos_20'],
         bins   = [0, 0.2, 0.4, 0.6, 0.8, 1.0],
         labels = ['very_low','low','mid','high','very_high'],
     ).astype(str)
 
+    # คำนวณความเคลื่อนไหวรายวันเทียบกับ ATR
     if 'atr_14' in df.columns:
         daily_move = (c - c.shift(1)).abs()
         features['range_used_pct'] = daily_move / (df['atr_14'] + 1e-9) * 100
 
+    # ── Gap Detection (หาราคาเปิดกระโดด) ─────────────────────
     prev_c, prev_h, prev_l = c.shift(1), h.shift(1), l.shift(1)
 
     features['gap_up']   = ((l > prev_h) & ((l - prev_h) / prev_h > 0.001)).astype(int)
@@ -268,13 +315,14 @@ def _add_price_position(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════
-# 6. Market Structure
+# 6. Market Structure — โครงสร้างตลาด (HH, HL, LL, LH)
 # ══════════════════════════════════════════════════════════════
 def _add_market_structure(df: pd.DataFrame) -> pd.DataFrame:
     h, l, c = df['high'], df['low'], df['close']
     features = {}
 
-    n = 5
+    # ── ค้นหา Swing High / Swing Low ────────────────────────
+    n = 5 # ดู 5 แท่งซ้ายขวา
     swing_high_mask = (h == h.rolling(n*2+1, center=True).max())
     swing_low_mask  = (l == l.rolling(n*2+1, center=True).min())
 
@@ -284,27 +332,31 @@ def _add_market_structure(df: pd.DataFrame) -> pd.DataFrame:
     swing_highs = h[swing_high_mask]
     swing_lows  = l[swing_low_mask]
 
+    # ── ระบุ Higher High (HH) / Lower Low (LL) ───────────────
     prev_sh = swing_highs.shift(1).reindex(df.index).ffill()
-    features['is_hh'] = (swing_high_mask & (h > prev_sh)).astype(int)
+    features['is_hh'] = (swing_high_mask & (h > prev_sh)).astype(int) # High สูงกว่า High เดิม
 
     prev_sl = swing_lows.shift(1).reindex(df.index).ffill()
-    features['is_ll'] = (swing_low_mask & (l < prev_sl)).astype(int)
+    features['is_ll'] = (swing_low_mask & (l < prev_sl)).astype(int)  # Low ต่ำกว่า Low เดิม
 
     prev_sl2 = swing_lows.shift(1).reindex(df.index).ffill()
-    features['is_hl'] = (swing_low_mask & (l > prev_sl2)).astype(int)
+    features['is_hl'] = (swing_low_mask & (l > prev_sl2)).astype(int) # Low สูงกว่า Low เดิม
 
     prev_sh2 = swing_highs.shift(1).reindex(df.index).ffill()
-    features['is_lh'] = (swing_high_mask & (h < prev_sh2)).astype(int)
+    features['is_lh'] = (swing_high_mask & (h < prev_sh2)).astype(int)# High ต่ำกว่า High เดิม
 
+    # นับจำนวนครั้งที่เกิดโครงสร้างใน 20 แท่งล่าสุด
     features['hh_count_20'] = pd.Series(features['is_hh']).rolling(20).sum()
     features['hl_count_20'] = pd.Series(features['is_hl']).rolling(20).sum()
     features['ll_count_20'] = pd.Series(features['is_ll']).rolling(20).sum()
     features['lh_count_20'] = pd.Series(features['is_lh']).rolling(20).sum()
 
+    # วิเคราะห์เทรนด์จากคะแนนโครงสร้าง
     features['structure_bull'] = features['hh_count_20'] + features['hl_count_20']
     features['structure_bear'] = features['ll_count_20'] + features['lh_count_20']
     features['structure_score']= features['structure_bull'] - features['structure_bear']
 
+    # ── Break of Structure (BOS) ทำลายโครงสร้างเก่า ────────────
     last_swing_high = h[swing_high_mask].reindex(df.index).ffill()
     last_swing_low  = l[swing_low_mask].reindex(df.index).ffill()
 
@@ -315,27 +367,34 @@ def _add_market_structure(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════
-# 7. Price Action Composite
+# 7. Price Action Composite — สรุปคะแนนรวมทั้งหมด
 # ══════════════════════════════════════════════════════════════
 def _add_pa_composite(df: pd.DataFrame) -> pd.DataFrame:
+    # เริ่มต้นคะแนนที่ 0
     score = pd.Series(0.0, index=df.index)
 
+    # บวกคะแนนจากรูปแบบแท่งเทียน (ให้ความสำคัญ 1.5 เท่า)
     if 'pat_net_score' in df.columns:
         score += df['pat_net_score'].clip(-2, 2) * 1.5
 
+    # บวกคะแนนจากโครงสร้างเทรนด์
     if 'structure_score' in df.columns:
         score += df['structure_score'].clip(-3, 3) / 3
 
+    # บวกคะแนนจากการทะลุโครงสร้าง BOS (สัญญาณค่อนข้างแม่นยำ ให้ 2 คะแนน)
     if 'bos_bull' in df.columns:
         score += df['bos_bull'] * 2
         score -= df['bos_bear'] * 2
 
+    # บวกคะแนน Breakout ธรรมดา
     if 'breakout_up_20' in df.columns:
         score += df['breakout_up_20']
         score -= df['breakout_down_20']
 
+    # บวกคะแนนจากการปิดแท่ง (ปิดสวยให้คะแนนเพิ่ม)
     if 'close_position' in df.columns:
         score += (df['close_position'] - 0.5) * 0.5
 
+    # จำกัดคะแนนรวมให้อยู่ในช่วง -5 (ลงจัด) ถึง 5 (ขึ้นจัด)
     features = {'pa_score': score.clip(-5, 5)}
     return pd.concat([df, pd.DataFrame(features, index=df.index)], axis=1)
