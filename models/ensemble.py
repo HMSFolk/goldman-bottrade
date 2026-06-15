@@ -420,7 +420,7 @@ class EnsembleTrader:
 
         # ถ้า AI มั่นใจ >= 65% และเห็นตรงกัน 2 ตัวขึ้นไป ให้เทรดเลย!
         # (ใช้ตัวแปร confidence และ n_agree โดยตรง ไม่ต้องมี signal.)
-        is_strong_signal = (confidence >= 0.65) and (n_agree >= 2)
+        is_strong_signal = (confidence >= 0.45) and (n_agree >= 2) and (direction != 0)
 
         if is_strong_signal:
             block_reason = ""  # เคลียร์เหตุผลการบล็อกทั้งหมด ให้ผ่านได้เลย
