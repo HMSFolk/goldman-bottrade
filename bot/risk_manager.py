@@ -279,8 +279,7 @@ class RiskManager:
         balance:    float,
         equity:     float,
         sl_distance:float,          # ระยะ SL เป็น price units
-        margin_level: float = 999,
-    ) -> RiskReport:
+        margin_level: float = 999,) -> RiskReport:
         """
         รัน risk checks ทั้งหมด
         คืน RiskReport ที่บอกว่า approved หรือ blocked
@@ -337,8 +336,7 @@ class RiskManager:
         self,
         symbol:      str,
         balance:     float,
-        sl_distance: float,
-    ) -> float:
+        sl_distance: float, ) -> float:
         """
         คำนวณ lot size ตาม Fixed Fractional Position Sizing
 
@@ -406,6 +404,15 @@ class RiskManager:
             f"→ lot={lot:.2f}"
         )
 
+        # ตรวจ actual risk หลัง clamp — ถ้าเกิน 1.5× คืน 0 (ไม่ส่ง order)
+        actual_risk = lot * sl_distance * pip_value
+        if actual_risk > risk_amount * 1.5:
+            log.warning(
+                f"Lot clamp risk ${actual_risk:.2f} > intended "
+                f"${risk_amount:.2f} × 1.5 — skip order"
+                )
+            return 0.0
+
         return lot
 
     def calculate_sl_tp_price(
@@ -448,8 +455,7 @@ class RiskManager:
     # Individual Checks
     # ══════════════════════════════════════════════════════════
     def _check_daily_loss(
-        self, current_balance: float
-    ) -> RiskCheckResult:
+        self, current_balance: float ) -> RiskCheckResult:
         """
         หยุดเทรดถ้าขาดทุนเกิน max_daily_loss% ของ balance เริ่มวัน
 
@@ -600,8 +606,7 @@ class RiskManager:
         )
 
     def _check_session(
-        self, symbol: str
-    ) -> RiskCheckResult:
+        self, symbol: str ) -> RiskCheckResult:
         """
         เทรดเฉพาะ London + NY session (simple check ใน check_all)
         สำหรับ full session check ใช้ check_session() แทน
@@ -660,8 +665,7 @@ class RiskManager:
         )
 
     def _check_margin_level(
-        self, margin_level: float
-    ) -> RiskCheckResult:
+        self, margin_level: float ) -> RiskCheckResult:
         """
         ตรวจ margin level
 
@@ -708,8 +712,7 @@ class RiskManager:
     def _check_equity_drawdown(
         self,
         balance: float,
-        equity:  float,
-    ) -> RiskCheckResult:
+        equity:  float, ) -> RiskCheckResult:
         """
         ตรวจว่า floating loss ไม่เกินเกณฑ์
 
@@ -1092,7 +1095,10 @@ class RiskManager:
             return False, 0.0, 0.0, ""
 
         daily_pnl = self._cb_get_pnl(days_back=1)
-        if daily_pnl >= 0:
+        if daily_pnl == 0.0:
+            acc = self._cb_get_account_info()
+            if acc:
+                daily_pnl = acc.get("profit", 0.0)
             return False, 0.0, 0.0, ""
 
         loss = abs(daily_pnl)

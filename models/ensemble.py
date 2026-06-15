@@ -550,15 +550,12 @@ class EnsembleTrader:
         self,
         predictions: list,
         weights:     dict,
-        regime:      "RegimeState",
-    ) -> EnsembleSignal:
+        regime:      "RegimeState",) -> EnsembleSignal:
         """
         รวม model predictions ด้วย weights ที่กำหนดจากภายนอก
         (Regime-aware version ของ _soft_vote)
-
         ต่างจาก predict() ตรงที่ใช้ weights ที่รับมาแทน self.weights
         ทำให้สามารถ override weights ตาม regime ได้
-
         Parameters:
             predictions : list[ModelPrediction] จาก _get_model_predictions()
             weights     : regime-specific weights จาก _get_regime_weights()
@@ -629,8 +626,7 @@ class EnsembleTrader:
 
     def _get_model_predictions(
         self,
-        df: pd.DataFrame,
-    ) -> list:
+        df: pd.DataFrame, ) -> list:
         """
         ดึง raw predictions จากทุกโมเดลที่โหลดแล้ว
 
@@ -686,16 +682,16 @@ class EnsembleTrader:
         proba:          np.ndarray,
         conflict_score: float,
         n_agree:        int,
-        n_models:       int,
-    ) -> str:
+        n_models:       int,) -> str:
         """
         ตรวจเงื่อนไขที่ควรบล็อก signal
         คืน string เหตุผล หรือ "" ถ้าไม่บล็อก
         """
         # Confidence ต่ำกว่า threshold
         max_prob = float(proba.max())
-        if max_prob < self.min_conf:
-            return f"confidence ต่ำ ({max_prob:.3f} < {self.min_conf})"
+        min_conf = get_config()['signal']['min_confidence']   # อ่านสดทุกครั้ง
+        if max_prob < min_conf:
+            return f"confidence ต่ำ ({max_prob:.3f} < {min_conf})"
 
         # โมเดลขัดกันสูง (BUY vs SELL)
         if conflict_score > 0.7:

@@ -55,7 +55,7 @@ risk:
   max_daily_loss_pct: 0.10
 
   # จำนวน position สูงสุดที่เปิดพร้อมกันได้
-  max_open_trades: 3
+  max_open_trades: 5
 
   # ไม่เทรดถ้า spread กว้างกว่านี้ (หน่วย: points)
   # XAUUSDm: 30 points ≈ 3 pips | Forex majors: 15 points
