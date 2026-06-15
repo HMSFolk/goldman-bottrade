@@ -710,8 +710,7 @@ class EnsembleTrader:
         proba:          np.ndarray,
         conflict_score: float,
         n_agree:        int,
-        n_models:       int,
-    ) -> str:
+        n_models:       int, ) -> str:
         """
         ตรวจเงื่อนไขที่ควรบล็อก signal
         คืน string เหตุผล หรือ "" ถ้าไม่บล็อก
@@ -722,7 +721,7 @@ class EnsembleTrader:
             return f"confidence ต่ำ ({max_prob:.3f} < {self.min_conf})"
 
         # โมเดลขัดกันสูง (BUY vs SELL)
-        if conflict_score > 0.7:
+        if conflict_score > 0.85:
             return f"conflict สูง ({conflict_score:.2f})"
 
         # ไม่มีโมเดลเลยที่เห็นด้วย
