@@ -193,6 +193,21 @@ class EnsembleTrader:
                 f"รัน: python models/train_xgb.py ก่อน"
             )
 
+        # ✅ FIX BUG-WEIGHT: renormalize weights ตามโมเดลที่โหลดได้จริง
+        # ถ้า LSTM ไม่มีไฟล์ → weight รวม xgb+lgbm = 0.75 แทน 1.0
+        # ทำให้ confidence ต่ำกว่าจริง 25% → แก้โดย normalize ใหม่
+        loaded_keys  = set(self._models.keys())
+        active_w     = {k: v for k, v in self.weights.items() if k in loaded_keys}
+        total_active = sum(active_w.values())
+        if total_active > 0:
+            self.weights = {k: v / total_active for k, v in active_w.items()}
+            missing = set(self.DEFAULT_WEIGHTS.keys()) - loaded_keys
+            if missing:
+                log.info(
+                    f"  ↻ Weights renormalized (missing: {missing}): "
+                    f"{self.weights}"
+                )
+
     # ── Predict Each Model ────────────────────────────────────
     def _predict_xgb(self, df: pd.DataFrame) -> ModelPrediction:
         """XGB predict — รับ single row"""
@@ -550,12 +565,15 @@ class EnsembleTrader:
         self,
         predictions: list,
         weights:     dict,
-        regime:      "RegimeState",) -> EnsembleSignal:
+        regime:      "RegimeState",
+    ) -> EnsembleSignal:
         """
         รวม model predictions ด้วย weights ที่กำหนดจากภายนอก
         (Regime-aware version ของ _soft_vote)
+
         ต่างจาก predict() ตรงที่ใช้ weights ที่รับมาแทน self.weights
         ทำให้สามารถ override weights ตาม regime ได้
+
         Parameters:
             predictions : list[ModelPrediction] จาก _get_model_predictions()
             weights     : regime-specific weights จาก _get_regime_weights()
@@ -626,7 +644,8 @@ class EnsembleTrader:
 
     def _get_model_predictions(
         self,
-        df: pd.DataFrame, ) -> list:
+        df: pd.DataFrame,
+    ) -> list:
         """
         ดึง raw predictions จากทุกโมเดลที่โหลดแล้ว
 
@@ -682,16 +701,16 @@ class EnsembleTrader:
         proba:          np.ndarray,
         conflict_score: float,
         n_agree:        int,
-        n_models:       int,) -> str:
+        n_models:       int,
+    ) -> str:
         """
         ตรวจเงื่อนไขที่ควรบล็อก signal
         คืน string เหตุผล หรือ "" ถ้าไม่บล็อก
         """
         # Confidence ต่ำกว่า threshold
         max_prob = float(proba.max())
-        min_conf = get_config()['signal']['min_confidence']   # อ่านสดทุกครั้ง
-        if max_prob < min_conf:
-            return f"confidence ต่ำ ({max_prob:.3f} < {min_conf})"
+        if max_prob < self.min_conf:
+            return f"confidence ต่ำ ({max_prob:.3f} < {self.min_conf})"
 
         # โมเดลขัดกันสูง (BUY vs SELL)
         if conflict_score > 0.7:

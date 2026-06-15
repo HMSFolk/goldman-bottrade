@@ -15,8 +15,20 @@ import yaml
 import time
 import sys
 import json
+import numpy as np                          # ✅ FIX: ย้ายมา top-level (ใช้ใน json_converter)
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+# ✅ FIX: json_converter ต้องอยู่ระดับ module ไม่ใช่ใน function
+#         และต้องส่งเข้า json.dumps(default=json_converter)
+def _json_converter(obj):
+    """แปลง numpy types ให้ json.dumps รู้จัก"""
+    if isinstance(obj, np.bool_):    return bool(obj)
+    if isinstance(obj, np.integer):  return int(obj)
+    if isinstance(obj, np.floating): return float(obj)
+    if isinstance(obj, np.ndarray):  return obj.tolist()
+    return str(obj)   # fallback สำหรับ type อื่นที่ไม่รู้จัก
 
 # โหลดคอนฟิกสากลพร้อมรองรับภาษาไทยอย่างปลอดภัย
 with open("logging.yaml", encoding="utf-8") as f:
@@ -133,8 +145,8 @@ def retrain_all(
     else:
         log.info("[6/8] Training Deep Learning LSTM...")
         lstm_res = {}
-        # คัดกรองรันเฉพาะคู่หลักที่มีความต้องการ และป้องกันขอบเขตดึงข้อมูลเกินสเกล
-        for sym in [s for s in symbols if "XAU" in s or s == symbols[0]]:
+        # ✅ FIX: เทรนทุก symbol (เดิมเทรนแค่ XAU)
+        for sym in symbols:
             try:
                 from models.train_lstm import train_lstm
                 r = train_lstm(sym, timeframe, epochs=30)
@@ -199,14 +211,11 @@ def retrain_all(
     Path("reports").mkdir(exist_ok=True)
     out = Path("reports/retrain_report.json")
 
-    import numpy as np
-    def json_converter(obj):
-        if isinstance(obj, (np.bool_, bool)): return bool(obj)
-        if isinstance(obj, np.integer): return int(obj)
-        if isinstance(obj, np.floating): return float(obj)
-        return str(obj)
-    
-    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    # ✅ FIX: ส่ง default=_json_converter เพื่อแปลง np.bool_ / np.integer / np.floating
+    out.write_text(
+        json.dumps(results, indent=2, default=_json_converter),
+        encoding="utf-8",
+    )
 
     log.info("=" * 60)
     log.info(f"🎉 PIPELINE EXECUTION COMPLETE ({elapsed}s) → Logs saved to reports/retrain_report.json")
