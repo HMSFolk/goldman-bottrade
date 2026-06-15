@@ -7,22 +7,22 @@
   "training_metrics": {
     "pass": false,
     "note": "acc\u226550% \u0e41\u0e25\u0e30 f1\u226540%",
-    "detail": "{'accuracy': 0.5927, 'f1': 0.3882}"
+    "detail": "{'accuracy': 0.5838, 'f1': 0.3892}"
   },
   "backtest": {
     "pass": true,
     "note": "sharpe\u22651 | dd\u226420% | wr\u226545% | pf\u22651.3 | trades\u226550",
-    "detail": "{'return': 0.5762212558521855, 'sharpe': 17.887449116175414, 'max_dd': 0.023285730203868628, 'win_rate': 71.81008902077151, 'pf': 4.704942982066931, 'trades': 337}"
+    "detail": "{'return': 0.8445058769082541, 'sharpe': 27.47912747382157, 'max_dd': 0.02016979925799318, 'win_rate': 88.62068965517241, 'pf': 15.033823671515428, 'trades': 290}"
   },
   "walk_forward": {
     "pass": "True",
     "note": "sharpe\u22650.8 | consistency\u226560%",
-    "detail": "{'mean_sharpe': 12.014, 'consistency': '80%', 'mean_return': np.float64(0.07)}"
+    "detail": "{'mean_sharpe': 23.668, 'consistency': '100%', 'mean_return': np.float64(0.12)}"
   },
   "overfit_check": {
     "pass": true,
     "note": "gap < 30% (train vs test)",
-    "detail": "{'train_return': 0.5593712967834434, 'test_return': 0.015606108825399758, 'gap': 0.5437651879580436}"
+    "detail": "{'train_return': 0.7503120152299994, 'test_return': 0.08805292323391625, 'gap': 0.6622590919960831}"
   },
   "risk_params": {
     "pass": true,
@@ -34,5 +34,5 @@
     "note": ".env \u0e15\u0e49\u0e2d\u0e07\u0e21\u0e35\u0e04\u0e23\u0e1a",
     "detail": "{'MT5_LOGIN': True, 'MT5_PASSWORD': True, 'MT5_SERVER': True}"
   },
-  "generated_at": "2026-06-15T15:19:35.868623+00:00"
+  "generated_at": "2026-06-15T16:49:20.735500+00:00"
 }

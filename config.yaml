@@ -2,7 +2,6 @@
 # TRADING BOT — MASTER CONFIG  (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
 # ============================================================
-
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
 mt5:
   # ⚠️  terminal_path มาจาก .env (MT5_PATH) — ไม่ต้องใส่ที่นี่
@@ -27,7 +26,6 @@ mt5:
     alert_after_retries  : 3     # ส่ง Telegram เมื่อ retry ครั้งที่ 3
     notify_telegram      : true  # ส่ง alert ทุก reconnect event
 
-
 # ── 2. SYMBOLS ───────────────────────────────────────────────
 symbols:
   # รายการ symbol ที่บอทจะเทรด
@@ -46,7 +44,6 @@ symbols:
     - "H1"
     - "H4"
 
-
 # ── 3. RISK MANAGEMENT ──────────────────────────────────────
 risk:
   # % ของ balance ที่เสี่ยงต่อ 1 trade
@@ -55,7 +52,7 @@ risk:
 
   # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้
   # 0.05 = 5% ของ balance วันนั้น
-  max_daily_loss_pct: 0.05
+  max_daily_loss_pct: 0.10
 
   # จำนวน position สูงสุดที่เปิดพร้อมกันได้
   max_open_trades: 3
@@ -76,25 +73,29 @@ risk:
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
   # ระยะ Stop Loss (หน่วย: points)
-  # XAUUSDm: 150 points = 15 pips (≈ $1.50 ต่อ 0.01 lot)
+  # ⚠️  ลด SL ให้แน่นขึ้น → risk ต่อ trade ลดลง
+  # XAUUSDm: 150→100 pts = 10 pips ($1.00/0.01lot) | ก่อนหน้า $1.50
   sl_points:
-    XAUUSDm: 150
-    EURUSDm: 120
-    GBPUSDm: 130
-    default: 130
+    XAUUSDm: 100   # ลดจาก 150 → แน่นขึ้น ออกเร็วถ้าผิดทาง
+    EURUSDm:  80   # ลดจาก 120
+    GBPUSDm:  90   # ลดจาก 130
+    default:  90
 
   # Take Profit = SL × tp_ratio
-  # 2.0 = RR 1:2 | แนะนำไม่ต่ำกว่า 1.5
-  tp_ratio: 2.0
+  # ⚠️  ลด RR จาก 1:2 → 1:1.2
+  # เหตุผล: TP 1:2 ไม่เคยถูกแตะ → ลดให้ถึงง่ายขึ้น
+  # คณิต: ต้องชนะ 46% (1:1.2) แทน 33% (1:2)
+  #        แต่ TP ใกล้กว่า = win rate จริงสูงกว่า
+  tp_ratio: 1.2
 
   # Trailing Stop — เปิด/ปิด
   use_trailing_stop: true
 
-  # เริ่ม trailing เมื่อกำไรถึง % นี้
-  trailing_start_pct: 0.008     # 0.8%
+  # เริ่ม trailing เมื่อกำไรถึง 0.5R (ครึ่งทาง TP)
+  trailing_start_pct: 0.005   # ปรับจาก 0.008 → เริ่ม trail เร็วขึ้น
 
-  # trailing distance
-  trailing_distance_pct: 0.005  # 0.5%
+  # trailing distance — lock กำไรไว้
+  trailing_distance_pct: 0.003  # ปรับจาก 0.005 → ชิดขึ้น lock กำไรได้มากกว่า
 
   # slippage ที่ยอมรับได้ (points)
   max_slippage: 10
@@ -106,7 +107,6 @@ order:
   # comment ใน order (เห็นใน MT5 history)
   order_comment: "aurum_bot_v1"
 
-
 # ── 5. SIGNAL & MODEL ───────────────────────────────────────
 signal:
   # โมเดลที่ใช้ตอนนี้
@@ -116,14 +116,14 @@ signal:
   # confidence ขั้นต่ำที่จะส่ง order
   # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
   # แนะนำ: 0.60–0.70
-  min_confidence: 0.40
+  # ⚠️  HOTFIX: 0.40 ต่ำมาก (baseline random = 0.33) → เปลี่ยนเป็น 0.62
+  min_confidence: 0.62
 
   # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
   lookback_bars: 200
 
   # ป้องกันเทรดซ้ำ symbol เดิมภายใน n นาที
   cooldown_min: 30
-
 
 # ── 6. TRADING SESSION ──────────────────────────────────────
 session:
@@ -145,7 +145,6 @@ session:
     - "2026-01-01"   # New Year
     - "2026-12-25"   # Christmas 2026
 
-
 # ── 7. DATA COLLECTION ──────────────────────────────────────
 data:
   # จำนวน bar ย้อนหลังที่ดึงมา train
@@ -164,7 +163,6 @@ data:
 
   # อัปเดต data ทุกกี่ชั่วโมง (Task Scheduler รัน)
   update_interval_hours: 24
-
 
 # ── 8. MODEL TRAINING ───────────────────────────────────────
 training:
@@ -209,7 +207,6 @@ training:
     feature_fraction: 0.8
     num_boost_round:  1000
 
-
 # ── 9. PATHS ────────────────────────────────────────────────
 paths:
   data_raw:       "data/raw"
@@ -219,7 +216,6 @@ paths:
   db:             "db/trades.db"
   reports:        "reports"
   flags:          "flags"
-
 
 # ── 10. DASHBOARD ───────────────────────────────────────────
 dashboard:
@@ -232,12 +228,8 @@ dashboard:
   # แสดง trade ล่าสุดกี่รายการ
   recent_trades_count: 50
 
-
 # ── 11. NOTIFICATIONS ───────────────────────────────────────
 notifications:
-  # ⚠️  telegram_token และ telegram_chat_id มาจาก .env
-  #     ไม่ต้องใส่ที่นี่
-
   # เปิด/ปิด Telegram alerts
   telegram_enabled: true
 
@@ -298,9 +290,9 @@ circuit_breaker:
   # ── 16. Daily loss limit ──────────────────────────────────────
   daily:
     enabled     : true
-    loss_pct    : 3.0        # หยุดถ้าขาดทุนวันนี้ > 3% ของ balance
-    loss_usd    : null       # หรือตั้งเป็น USD fixed เช่น 300
-    auto_resume : true       # resume อัตโนมัติ 00:05 UTC ของวันถัดไป
+    loss_pct    : 2.0        # ลดจาก 3.0 → หยุดที่ 2% (~$10 จาก $500)
+    loss_usd    : null
+    auto_resume : true
 
   # ── 17. Weekly loss limit ─────────────────────────────────────
   weekly:
@@ -311,14 +303,14 @@ circuit_breaker:
   # ── 18. Consecutive losses ────────────────────────────────────
   consecutive_losses:
     enabled         : true
-    count           : 5      # แพ้ติดกัน 5 ครั้ง → หยุด
-    cooldown_hours  : 4      # auto-resume หลัง 4 ชม.
+    count           : 3      # ลดจาก 5 → หยุดถ้าแพ้ติด 3 ครั้ง
+    cooldown_hours  : 4
 
   # ── 19. Floating drawdown (real-time) ─────────────────────────
   floating_dd:
     enabled     : true
-    max_pct     : 5.0        # หยุดถ้า equity ต่ำกว่า balance > 5%
-    warn_pct    : 70         # warn เมื่อถึง 70% ของ limit
+    max_pct     : 3.0        # ลดจาก 5.0 → หยุดถ้า equity ต่ำกว่า balance > 3%
+    warn_pct    : 70
 
 #-----20. regime detection settings
 regime_detection:
@@ -384,3 +376,39 @@ session_filter:
   # ถ้าต้องการเทรดเฉพาะช่วงนี้: overlap_only: true
 
   #--------------------------------------------------------------------------------------------------------------------------------
+
+#-----24. Trade Management (ใหม่) ──────────────────────────────
+trade_management:
+  # ── Time-based Exit ──────────────────────────────────────────
+  # ปิด position อัตโนมัติถ้าถือนานเกินไปโดยไม่ถึง TP/SL
+  max_hold_hours  : 4       # ปิดถ้าถือ > 4 ชั่วโมง (ป้องกันค้างข้ามคืน)
+
+  # ── Breakeven ────────────────────────────────────────────────
+  # ย้าย SL → entry เมื่อกำไรถึง X เท่าของ risk
+  be_after_rr     : 0.5    # กำไรถึง 0.5R → ย้าย SL → breakeven (ไม่ขาดทุนแล้ว)
+
+  # ── Partial Close ────────────────────────────────────────────
+  # ปิดบางส่วนเพื่อ "เก็บกำไรระหว่างทาง"
+  partial_close_rr: 1.0    # กำไรถึง 1R → ปิด 50% ก่อน
+  partial_close_pct: 0.50  # ปิดกี่ % ของ position (0.50 = ครึ่งนึง)
+
+  # ── Enabled Flags ────────────────────────────────────────────
+  enable_time_exit    : true
+  enable_breakeven    : true
+  enable_partial_close: true
+
+#-----25. Pyramiding / Scaling In (ใหม่ — ปิดไว้ก่อน) ──────────
+# เปิดเมื่อระบบ win rate > 50% ต่อเนื่อง 2 สัปดาห์เท่านั้น
+pyramiding:
+  enabled            : false   # ⚠️  เปิดเมื่อพร้อมจริงๆ เท่านั้น
+
+  # กติกา: เพิ่ม position เมื่อ trade ปัจจุบันกำไรถึง X R
+  add_at_rr          : 1.0    # เพิ่มออเดอร์เมื่อกำไรถึง 1R
+  add_volume_pct     : 0.50   # ออเดอร์ใหม่ = 50% ของ lot เดิม
+
+  # ขอบเขตความเสี่ยง
+  max_pyramid_levels : 2       # เพิ่มได้สูงสุด 2 ครั้ง (ออเดอร์รวม 3)
+  max_total_risk_pct : 0.02   # risk รวมทุก pyramid ≤ 2% ของ balance
+
+  # SL ของออเดอร์ที่เพิ่ม: ย้ายมาที่ breakeven ของออเดอร์แรก
+  pyramid_sl_at_be   : true   # true = ออเดอร์ใหม่ SL อยู่ที่ entry ออเดอร์แรก
