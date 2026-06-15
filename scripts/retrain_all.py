@@ -198,6 +198,14 @@ def retrain_all(
     # สร้างโฟลเดอร์สำหรับรายงานผลหากยังไม่มีในเครื่อง
     Path("reports").mkdir(exist_ok=True)
     out = Path("reports/retrain_report.json")
+
+    import numpy as np
+    def json_converter(obj):
+        if isinstance(obj, (np.bool_, bool)): return bool(obj)
+        if isinstance(obj, np.integer): return int(obj)
+        if isinstance(obj, np.floating): return float(obj)
+        return str(obj)
+    
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     log.info("=" * 60)
@@ -206,7 +214,6 @@ def retrain_all(
 
     _notify_complete(results, symbols, elapsed)
     return results
-
 
 def _notify(msg: str):
     try:
