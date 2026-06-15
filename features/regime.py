@@ -149,13 +149,13 @@ class RegimeDetector:
 
         # ── ADX settings ───────────────────────────────────────
         self.adx_period       = cfg_r.get("adx_period",        14)
-        self.adx_trend_thresh = cfg_r.get("adx_trend_thresh",  25)   # > = trending
-        self.adx_range_thresh = cfg_r.get("adx_range_thresh",  20)   # < = ranging
+        self.adx_trend_thresh = cfg_r.get("adx_trend_thresh",  22)   # > = trending
+        self.adx_range_thresh = cfg_r.get("adx_range_thresh",  18)   # < = ranging
 
         # ── Hurst settings ─────────────────────────────────────
         self.hurst_max_lag     = cfg_r.get("hurst_max_lag",    20)
-        self.hurst_trend_thresh= cfg_r.get("hurst_trend",      0.55) # > = persistent
-        self.hurst_range_thresh= cfg_r.get("hurst_range",      0.45) # < = mean-revert
+        self.hurst_trend_thresh= cfg_r.get("hurst_trend",      0.52) # > = persistent
+        self.hurst_range_thresh= cfg_r.get("hurst_range",      0.48) # < = mean-revert
 
         # ── Volatility settings ────────────────────────────────
         self.atr_period    = cfg_r.get("atr_period",       14)
@@ -519,7 +519,7 @@ class RegimeDetector:
 
         # 4. DI alignment (DI+ vs DI- confirms direction)
         di_gap     = abs(di_plus - di_minus)
-        di_aligned = di_gap > 5  # DI+ and DI- well separated
+        di_aligned = di_gap > 3  # DI+ and DI- well separated
 
         # ── Classify ──────────────────────────────────────────
         trending_votes = sum([
