@@ -2,38 +2,38 @@
   "symbol": "GBPUSDm",
   "seq_len": 60,
   "n_features": 296,
-  "trained_at": "2026-06-15T18:29:38.783150+00:00",
+  "trained_at": "2026-06-15T21:11:51.678094+00:00",
   "is_acceptable": "True",
-  "mean_accuracy": 0.565,
-  "mean_f1": 0.4228,
-  "std_accuracy": 0.0064,
+  "mean_accuracy": 0.5723,
+  "mean_f1": 0.4399,
+  "std_accuracy": 0.0079,
   "folds": [
     {
       "fold": 1,
       "train_period": "2026-01-20\u21922026-02-24",
       "test_period": "2026-02-25\u21922026-04-02",
-      "accuracy": 0.5714,
-      "f1_macro": 0.4143,
-      "best_epoch": 26,
-      "train_loss": 0.402
+      "accuracy": 0.5701,
+      "f1_macro": 0.4552,
+      "best_epoch": 18,
+      "train_loss": 0.5099
     },
     {
       "fold": 2,
       "train_period": "2026-01-20\u21922026-04-01",
       "test_period": "2026-04-02\u21922026-05-08",
-      "accuracy": 0.5562,
-      "f1_macro": 0.4229,
-      "best_epoch": 13,
-      "train_loss": 0.4644
+      "accuracy": 0.564,
+      "f1_macro": 0.4211,
+      "best_epoch": 9,
+      "train_loss": 0.5255
     },
     {
       "fold": 3,
       "train_period": "2026-01-20\u21922026-05-07",
       "test_period": "2026-05-08\u21922026-06-15",
-      "accuracy": 0.5673,
-      "f1_macro": 0.4312,
-      "best_epoch": 10,
-      "train_loss": 0.5111
+      "accuracy": 0.5829,
+      "f1_macro": 0.4434,
+      "best_epoch": 8,
+      "train_loss": 0.5167
     }
   ]
 }

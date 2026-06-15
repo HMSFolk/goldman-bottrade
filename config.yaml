@@ -117,7 +117,7 @@ signal:
   # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
   # แนะนำ: 0.60–0.70
   # ⚠️  HOTFIX: 0.40 ต่ำมาก (baseline random = 0.33) → เปลี่ยนเป็น 0.62
-  min_confidence: 0.62
+  min_confidence: 0.55
 
   # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
   lookback_bars: 200

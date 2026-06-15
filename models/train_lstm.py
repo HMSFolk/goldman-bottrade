@@ -295,8 +295,7 @@ class TradingSequenceDataset(Dataset):
         self,
         X:       np.ndarray,    # (n_samples, n_features) — scaled แล้ว
         y:       np.ndarray,    # (n_samples,) labels: 0, 1, 2
-        seq_len: int = 60,
-    ):
+        seq_len: int = 120, ):
         self.seq_len = seq_len
         self.X       = torch.FloatTensor(X)
         self.y       = torch.LongTensor(y)

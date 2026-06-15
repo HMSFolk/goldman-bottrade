@@ -17,8 +17,7 @@ import yaml
 
 def setup_logging(
     config_path: str | Path | None = None,
-    log_level_override: str | None = None,
-) -> None:
+    log_level_override: str | None = None,) -> None:
     """
     สร้าง log directories และโหลด logging.yaml
 
