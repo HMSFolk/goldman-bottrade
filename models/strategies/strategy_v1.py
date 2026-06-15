@@ -14,7 +14,6 @@ Logic:
   ปรับ SL/TP ตาม ATR และ volatility regime
   บล็อก trade เมื่อ HTF ขัดแย้งหรือ session ไม่เหมาะ
 """
-
 import logging
 import yaml
 import numpy as np
@@ -34,7 +33,6 @@ BACKTEST_SHARPE    = 1.43
 BACKTEST_MAX_DD    = 12.1
 BACKTEST_WIN_RATE  = 52.3
 BACKTEST_PF        = 1.47
-
 
 # ══════════════════════════════════════════════════════════════
 # Data Classes
@@ -78,7 +76,6 @@ class TradeSetup:
             f"RR={self.rr_ratio:.1f} | "
             f"regime={self.regime} session={self.session}"
         )
-
 
 # ══════════════════════════════════════════════════════════════
 # Strategy V1 Class
@@ -126,8 +123,7 @@ class StrategyV1:
     def evaluate(
         self,
         df:     pd.DataFrame,
-        symbol: str,
-    ) -> TradeSetup:
+        symbol: str,) -> TradeSetup:
         """
         ประเมินว่าควรเทรดหรือเปล่า
 
@@ -251,8 +247,7 @@ class StrategyV1:
     # Filter Steps
     # ══════════════════════════════════════════════════════════
     def _step_ensemble(
-        self, df: pd.DataFrame, symbol: str
-    ) -> dict | None:
+        self, df: pd.DataFrame, symbol: str ) -> dict | None:
         """รัน ML Ensemble และคืน signal dict"""
         try:
             ensemble = self._get_ensemble(symbol)
@@ -269,8 +264,7 @@ class StrategyV1:
             return None
 
     def _check_confidence(
-        self, confidence: float
-    ) -> tuple[bool, str]:
+        self, confidence: float ) -> tuple[bool, str]:
         """ตรวจ confidence ขั้นต่ำ"""
         min_conf = CFG['signal']['min_confidence']
         if confidence < min_conf:
@@ -278,29 +272,25 @@ class StrategyV1:
         return True, ""
 
     def _check_htf_alignment(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
-        """
-        ตรวจว่า H1 และ H4 ไม่ขัดแย้งกับ signal
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
+        """ตรวจไทม์เฟรมใหญ่ (H1, H4) รองรับการเปิด/ปิดผ่าน config.yaml"""
+        # ดึงค่าสวิตช์จาก config.yaml
+        use_htf = CFG.get('strategy_filters', {}).get('use_htf_filter', True)
+        
+        # ถ้าตั้งค่า false ไว้ใน config ให้ปล่อยผ่านทันที
+        if not use_htf:
+            return True, ""
 
-        กฎ:
-        BUY  = H4 ต้องไม่ bearish ชัดเจน
-        SELL = H4 ต้องไม่ bullish ชัดเจน
-        ถ้า H1 vs H4 ขัดแย้งกัน = HOLD
-        """
-        # HTF conflict check
         conflict = row.get('htf_conflict', 0)
         if conflict == 1:
             return False, "htf_conflict(H1vsH4)"
 
-        # H4 trend ต้องไม่ตรงข้าม signal
         h4_ema = row.get('h4_ema_alignment', 2)
         if direction == 1 and h4_ema <= 1:
             return False, f"h4_strong_bear(align={h4_ema})"
         if direction == -1 and h4_ema >= 3:
             return False, f"h4_strong_bull(align={h4_ema})"
 
-        # H1 RSI ต้องสอดคล้อง
         h1_rsi = row.get('h1_rsi_14', 50)
         if direction == 1 and h1_rsi > 75:
             return False, f"h1_overbought(rsi={h1_rsi:.0f})"
@@ -310,38 +300,40 @@ class StrategyV1:
         return True, ""
 
     def _check_volatility(
-        self, row: pd.Series
-    ) -> tuple[bool, str, str]:
-        """
-        ตรวจ volatility conditions
+        self, row: pd.Series ) -> tuple[bool, str, str]:
+        """ตรวจ volatility conditions รองรับการเปิด/ปิดผ่าน config.yaml"""
+        # ดึงค่าสวิตช์จาก config.yaml
+        filters_cfg = CFG.get('strategy_filters', {})
+        use_squeeze = filters_cfg.get('use_squeeze_filter', True)
+        use_atr_low = filters_cfg.get('use_atr_low_filter', True)
 
-        Returns: (passed, reason, regime)
-        """
-        # Squeeze ON — รอ breakout ก่อน
         squeeze = row.get('squeeze_on', 0)
-        if squeeze == 1:
+        
+        # ถ้าสวิตช์เป็น True และกราฟบีบตัว -> บล็อก
+        if use_squeeze and squeeze == 1:
             bars = row.get('squeeze_bars', 0)
             return False, f"squeeze_on({int(bars)}bars)", "squeeze"
 
-        # ATR สูงผิดปกติ — อาจมีข่าว
+        # ATR สูงผิดปกติ (กันพอร์ตแตกตอนข่าว อันนี้บังคับเปิดไว้เสมอ)
         atr_ratio = row.get('atr_ratio', 1.0)
         if atr_ratio > 2.5:
             return False, f"atr_spike({atr_ratio:.1f}x)", "high"
 
-        # ATR ต่ำมาก — spread กิน profit
-        if atr_ratio < 0.3:
+        # ถ้าสวิตช์เป็น True และวอลุ่มต่ำ -> บล็อก
+        if use_atr_low and atr_ratio < 0.3:
             return False, f"atr_too_low({atr_ratio:.1f}x)", "low"
 
-        # Volatility regime
         regime = row.get('vol_regime', 'normal')
         if isinstance(regime, float):
             regime = 'normal'
+            
+        if squeeze == 1:
+            regime = "squeeze"
 
         return True, "", regime
 
     def _check_session(
-        self, row: pd.Series
-    ) -> tuple[bool, str, str]:
+        self, row: pd.Series) -> tuple[bool, str, str]:
         """
         เทรดเฉพาะ London + NY session
 
@@ -364,8 +356,7 @@ class StrategyV1:
         return True, "", session
 
     def _check_pattern(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
         """
         ตรวจ candle pattern ยืนยัน signal
         ไม่ block แต่ปรับ confidence
@@ -389,8 +380,7 @@ class StrategyV1:
         return True, ""
 
     def _check_structure(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
         """
         ตรวจ market structure
         เทรดตาม trend ไม่เทรดสวน structure
@@ -416,8 +406,7 @@ class StrategyV1:
         self,
         row:       pd.Series,
         direction: int,
-        regime:    str,
-    ) -> tuple[float, float]:
+        regime:    str, ) -> tuple[float, float]:
         """
         คำนวณ SL/TP แบบ ATR-based dynamic
 
@@ -478,8 +467,7 @@ class StrategyV1:
     # Diagnostic Tools
     # ══════════════════════════════════════════════════════════
     def explain(
-        self, df: pd.DataFrame, symbol: str
-    ) -> str:
+        self, df: pd.DataFrame, symbol: str ) -> str:
         """
         อธิบายว่าทำไมถึงให้ signal นั้น
         ใช้ debug และ review

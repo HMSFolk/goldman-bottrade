@@ -142,6 +142,11 @@ def _get_open_positions() -> list:
     """ดึง open positions จาก MT5"""
     try:
         import MetaTrader5 as mt5
+        # ⚠️ เติม 2 บรรทัดนี้เข้าไปเพื่อให้แน่ใจว่าเชื่อมต่อ MT5 สำเร็จเสมอ
+        if not mt5.initialize():
+            log.error("Telegram Bot: MT5 initialize failed")
+            return []
+            
         positions = mt5.positions_get() or []
         return [
             {

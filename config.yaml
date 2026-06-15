@@ -63,7 +63,7 @@ risk:
   # ไม่เทรดถ้า spread กว้างกว่านี้ (หน่วย: points)
   # XAUUSDm: 30 points ≈ 3 pips | Forex majors: 15 points
   max_spread_points:
-    XAUUSDm: 30
+    XAUUSDm: 300
     EURUSDm: 15
     GBPUSDm: 20
     default: 25
@@ -116,7 +116,7 @@ signal:
   # confidence ขั้นต่ำที่จะส่ง order
   # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
   # แนะนำ: 0.60–0.70
-  min_confidence: 0.62
+  min_confidence: 0.40
 
   # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
   lookback_bars: 200
@@ -341,3 +341,46 @@ regime_weights:
   ranging      : {lgbm: 0.20, xgb: 0.20, lstm: 0.10, rule: 0.50}
   volatile     : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
   uncertain    : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
+
+#-----22. strategy filters (สวิตช์เปิด/ปิดตัวกรองต่างๆ)
+strategy_filters:
+  use_squeeze_filter: false    # false = ปิดการบล็อกกราฟบีบตัว (เทรดบ่อยขึ้น)
+  use_htf_filter: false        # false = ปิดการเช็คไทม์เฟรม H1, H4 ขัดแย้ง
+  use_atr_low_filter: false    # false = ปิดการบล็อกวอลุ่มต่ำ
+  use_regime_filter: false     # false = ปิดการแยก regime (เทรดทุก regime)
+
+#-----23. Session Filter ────────────────────────────────────────
+session_filter:
+  enabled       : true
+  skip_weekend  : true
+  use_dst       : true          # ปรับ NY session ตาม US DST อัตโนมัติ
+  overlap_only  : false         # true = เทรดเฉพาะ 12:00-16:00 UTC เท่านั้น
+
+  # ── Sessions ที่อนุญาต (default สำหรับทุก symbol) ─────────
+  allowed_sessions:
+    - London                    # 07:00-16:00 UTC (ตลอดปี)
+    - New York                  # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
+
+  # ── Per-symbol override ────────────────────────────────────
+  symbol_sessions:
+    XAUUSDm: ["London", "New York"]   # ทอง → London + NY
+    EURUSDm: ["London", "New York"]   # EUR  → London + NY
+    GBPUSDm: ["London", "New York"]   # GBP  → London + NY
+
+  # ── Weekend rules ──────────────────────────────────────────
+  friday_close_hour : 21        # หยุดหลัง 21:00 UTC Friday
+  monday_open_hour  :  7        # เริ่มได้ 07:00 UTC Monday (London open)
+
+  # ── Session Times Reference ────────────────────────────────
+  # Session   │ UTC (EDT/Summer) │ UTC (EST/Winter)
+  # ──────────┼──────────────────┼──────────────────
+  # Sydney    │ 21:00 – 06:00   │ 21:00 – 06:00
+  # Tokyo     │ 00:00 – 09:00   │ 00:00 – 09:00
+  # London    │ 07:00 – 16:00   │ 07:00 – 16:00
+  # New York  │ 12:00 – 21:00   │ 13:00 – 22:00
+  # Overlap ⚡│ 12:00 – 16:00   │ 13:00 – 17:00
+  # ทองทำ move ใหญ่ที่สุดใน London+NY Overlap
+  # เพราะ liquidity จาก European + US traders พร้อมกัน
+  # ถ้าต้องการเทรดเฉพาะช่วงนี้: overlap_only: true
+
+  #--------------------------------------------------------------------------------------------------------------------------------

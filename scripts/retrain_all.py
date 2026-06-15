@@ -31,24 +31,16 @@ def retrain_all(
     symbols:   list  = None,
     timeframe: str   = None,
     skip_lstm: bool  = False,   # ข้าม LSTM ถ้าเวลาจำกัด
-    skip_bt:   bool  = False,   # ข้าม backtest
-) -> dict:
+    skip_bt:   bool  = False, ) -> dict:    # ข้าม backtest
 
-    # ✅ ปรับปรุงการดึงคู่เงินให้ตรงตามวงจรหลักของคุณ 
-    # หากแมนนวลไม่ระบุ จะดึงคู่เงินสากลที่เราตั้งไว้มาใช้
+    # ✅ ดึงเฉพาะรายชื่อคู่เงินจากหัวข้อ active ใน config.yaml เท่านั้น
     if not symbols:
-        if 'trading' in CFG and 'symbols' in CFG['trading']:
-            symbols = CFG['trading']['symbols']
-        elif 'symbols' in CFG:
-            symbols = CFG['symbols']
+        if 'symbols' in CFG and 'active' in CFG['symbols']:
+            symbols = CFG['symbols']['active']
         else:
             symbols = ["XAUUSDm", "EURUSDm", "GBPUSDm"]
 
-    # บังคับแปลงกรณีสกัดค่าออกมาได้เป็น Dictionary ให้กลายเป็น List ตัวอักษร
-    if isinstance(symbols, dict):
-        symbols = list(symbols.keys())
-
-    timeframe = timeframe or CFG.get('trading', {}).get('timeframe', 'M15')
+    timeframe = timeframe or CFG.get('symbols', {}).get('primary_timeframe', 'M15')
     results   = {}
     t_start   = time.time()
 

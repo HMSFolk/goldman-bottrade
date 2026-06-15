@@ -7,7 +7,7 @@ Risk Manager — ระบบป้องกันความเสี่ยง
 ความรับผิดชอบ:
   - คำนวณ lot size ตาม % risk ที่กำหนด
   - ตรวจ spread (ไม่เทรดถ้า spread กว้างเกิน)
-  - ตรวจ session (เทรดเฉพาะ London + NY)
+  - ตรวจ session (เทรดเฉพาะ London + NY)     ← รองรับ DST ใหม่
   - ตรวจ daily loss limit (หยุดถ้าเสียเกิน X%)
   - ตรวจ max open trades
   - ตรวจ margin level
@@ -163,6 +163,46 @@ class CircuitBreakerState:
 
 
 # ══════════════════════════════════════════════════════════════
+# [2] NEW — Session Dataclasses (เพิ่มก่อน class RiskManager)
+# ══════════════════════════════════════════════════════════════
+
+@dataclass
+class SessionInfo:
+    """ข้อมูล session เดียว — ใช้แสดงใน /session Telegram และ dashboard"""
+    name       : str
+    open_utc   : int    # ชั่วโมงเปิด (UTC, 0-23)
+    close_utc  : int    # ชั่วโมงปิด  (UTC, 0-23)
+    is_open    : bool   = False
+    opens_in_h : float  = 0.0   # ชั่วโมงที่ session นี้จะเปิด (ถ้าปิดอยู่)
+    emoji      : str    = ""
+
+    @property
+    def range_str(self) -> str:
+        return f"{self.open_utc:02d}:00–{self.close_utc:02d}:00 UTC"
+
+
+@dataclass
+class SessionResult:
+    """ผลการตรวจ session filter"""
+    ok              : bool
+    active_sessions : list = field(default_factory=list)   # ["London","New York"]
+    blocked_reason  : str  = ""
+    next_open_utc   : Optional[datetime] = None     # เมื่อไหร่จะเทรดได้อีก
+    is_overlap      : bool = False  # True = London + NY พร้อมกัน (prime zone)
+    is_weekend      : bool = False
+
+    def __str__(self) -> str:
+        if self.ok:
+            overlap = " ⚡OVERLAP" if self.is_overlap else ""
+            return f"✅ Sessions: {', '.join(self.active_sessions)}{overlap}"
+        if self.next_open_utc:
+            hrs = (self.next_open_utc - datetime.now(timezone.utc)
+                   ).total_seconds() / 3600
+            return f"🚫 {self.blocked_reason} (opens in {hrs:.1f}h)"
+        return f"🚫 {self.blocked_reason}"
+
+
+# ══════════════════════════════════════════════════════════════
 # Risk Manager
 # ══════════════════════════════════════════════════════════════
 class RiskManager:
@@ -174,7 +214,24 @@ class RiskManager:
         report = risk.check_all(symbol, direction, balance, sl_dist)
         if report.all_passed:
             executor.send_order(lot=report.lot_size, ...)
+
+    Session filter (ใหม่):
+        result = risk.check_session(symbol="XAUUSDm")
+        if not result.ok:
+            continue   # ออกนอก session
+        if result.is_overlap:
+            log.info("⚡ London+NY Overlap — prime zone")
     """
+
+    # [3] NEW — Session definitions (UTC hours, DST-adjusted for NY)
+    _SESSIONS = {
+        "Sydney"  : {"open": 21, "close":  6, "overnight": True},
+        "Tokyo"   : {"open":  0, "close":  9, "overnight": False},
+        "London"  : {"open":  7, "close": 16, "overnight": False},
+        "New York": {"open": 12, "close": 21, "overnight": False},
+    }
+    # NY: EDT (UTC-4) open=12 / EST (UTC-5) open=13 — ปรับอัตโนมัติตาม DST
+    # London: 07:00-16:00 UTC ตลอดปี (BST/GMT adjust ให้ตรง UTC เอง)
 
     def __init__(self):
         # ดึงค่าจาก config
@@ -546,7 +603,8 @@ class RiskManager:
         self, symbol: str
     ) -> RiskCheckResult:
         """
-        เทรดเฉพาะ London + NY session
+        เทรดเฉพาะ London + NY session (simple check ใน check_all)
+        สำหรับ full session check ใช้ check_session() แทน
 
         Gold (XAUUSD): ดีที่สุดช่วง 07:00-20:00 UTC
         Forex majors: London 07-16 | NY 12-21
@@ -699,7 +757,8 @@ class RiskManager:
 
     def _check_weekend(self) -> RiskCheckResult:
         """
-        ไม่เทรดช่วงสุดสัปดาห์
+        ไม่เทรดช่วงสุดสัปดาห์ (simple check ใน check_all)
+        สำหรับ full weekend check พร้อม next_open_utc ใช้ _weekend_session_block()
 
         เหตุผล:
         ตลาด Forex/Gold ปิด Friday 22:00 UTC → Sunday 22:00 UTC
@@ -1312,3 +1371,358 @@ class RiskManager:
             'max_daily_loss'     : self.max_daily_loss,
             'max_open_trades'    : self.max_open_trades,
         }
+
+    # ══════════════════════════════════════════════════════════
+    # [4] NEW — Session Filter (Public API)
+    # ══════════════════════════════════════════════════════════
+
+    def check_session(
+        self,
+        symbol    : Optional[str] = None,
+        now_utc   : Optional[datetime] = None,
+    ) -> SessionResult:
+        """
+        ตรวจว่าตอนนี้อยู่ใน trading session ที่อนุญาตไหม
+        (DST-aware, per-symbol config, overlap detection)
+
+        Args:
+            symbol  : "XAUUSDm" ฯลฯ — ใช้ per-symbol override ใน config
+            now_utc : inject เวลา (ถ้า None ใช้เวลาจริง) — ช่วย unit test
+
+        Returns:
+            SessionResult
+              .ok=True  → เทรดได้
+              .ok=False → ควร skip (พร้อม next_open_utc บอกเวลาที่จะเปิดอีก)
+              .is_overlap=True → London+NY พร้อมกัน (prime zone สำหรับทอง)
+
+        ตัวอย่าง:
+            sess = risk.check_session(symbol="XAUUSDm")
+            if not sess.ok:
+                log.debug(f"[{symbol}] {sess}")
+                continue
+            if sess.is_overlap:
+                log.info(f"[{symbol}] ⚡ London+NY Overlap — prime zone")
+        """
+        cfg_sf = CFG.get("session_filter", {})
+        if not cfg_sf.get("enabled", True):
+            return SessionResult(ok=True, active_sessions=["all"])
+
+        now = now_utc or datetime.now(timezone.utc)
+
+        # ── Weekend check ──────────────────────────────────────
+        if cfg_sf.get("skip_weekend", True):
+            wr = self._weekend_session_block(now, cfg_sf)
+            if not wr.ok:
+                return wr
+
+        # ── หา allowed sessions สำหรับ symbol นี้ ─────────────
+        allowed = self._get_allowed_sessions(symbol, cfg_sf)
+
+        # ── ดึง session times (DST-aware) ─────────────────────
+        session_hours = self._build_session_hours(now, cfg_sf)
+
+        # ── ตรวจว่า session ไหนเปิดอยู่ ───────────────────────
+        active = [
+            name for name in allowed
+            if name in session_hours
+            and self._is_open(session_hours[name], now.hour, now.minute)
+        ]
+
+        # ── Overlap detection (London + NY พร้อมกัน) ──────────
+        is_overlap = "London" in active and "New York" in active
+
+        # ── Overlap-only mode ──────────────────────────────────
+        if cfg_sf.get("overlap_only", False):
+            if not is_overlap:
+                return SessionResult(
+                    ok             = False,
+                    active_sessions= active,
+                    blocked_reason = "Overlap-only mode (London+NY not both open)",
+                    next_open_utc  = self._next_overlap_open(now, session_hours),
+                    is_weekend     = False,
+                )
+            return SessionResult(
+                ok=True, active_sessions=active, is_overlap=True
+            )
+
+        # ── ปกติ: อย่างน้อย 1 session ต้องเปิด ───────────────
+        if active:
+            return SessionResult(
+                ok              = True,
+                active_sessions = active,
+                is_overlap      = is_overlap,
+            )
+
+        # ── ไม่มี session เปิด ─────────────────────────────────
+        next_open = self._next_allowed_open(now, allowed, session_hours, cfg_sf)
+        return SessionResult(
+            ok             = False,
+            active_sessions= [],
+            blocked_reason = (
+                f"No allowed session open "
+                f"(allowed: {', '.join(allowed)})"
+            ),
+            next_open_utc  = next_open,
+        )
+
+    def get_all_session_info(
+        self,
+        now_utc: Optional[datetime] = None,
+    ) -> list:
+        """
+        คืน SessionInfo ทุก session
+        ใช้สำหรับ /session ใน Telegram และ dashboard
+
+        Returns:
+            list[SessionInfo] — ทุก session พร้อม is_open และ opens_in_h
+        """
+        now           = now_utc or datetime.now(timezone.utc)
+        cfg_sf        = CFG.get("session_filter", {})
+        session_hours = self._build_session_hours(now, cfg_sf)
+
+        _EMOJIS = {
+            "Sydney"  : "🦘",
+            "Tokyo"   : "🗼",
+            "London"  : "🎡",
+            "New York": "🗽",
+        }
+
+        results = []
+        for name, (open_h, close_h) in session_hours.items():
+            is_open  = self._is_open((open_h, close_h), now.hour, now.minute)
+            opens_in = 0.0
+            if not is_open:
+                opens_in = self._hours_until(open_h, now.hour, now.minute)
+
+            results.append(SessionInfo(
+                name      = name,
+                open_utc  = open_h,
+                close_utc = close_h,
+                is_open   = is_open,
+                opens_in_h= round(opens_in, 1),
+                emoji     = _EMOJIS.get(name, "🌐"),
+            ))
+        return results
+
+    # ══════════════════════════════════════════════════════════
+    # [4] NEW — Weekend Handling (Session Module)
+    # ══════════════════════════════════════════════════════════
+    # NOTE: ใช้ชื่อ _weekend_session_block เพื่อไม่ conflict กับ
+    #       _check_weekend(self) เดิมที่ใช้ใน check_all()
+
+    def _weekend_session_block(
+        self,
+        now   : datetime,
+        cfg_sf: dict,
+    ) -> SessionResult:
+        """
+        ตรวจว่าเป็นช่วง weekend ที่ตลาดปิดไหม (session-aware version)
+
+        ตลาด Forex ปิด:
+          Friday  >= friday_close_hour UTC   (default 21:00)
+          Saturday (ทั้งวัน)
+          Sunday  < monday_open_hour UTC     (default 07:00)
+
+        Returns:
+            SessionResult(ok=True)  = เทรดได้
+            SessionResult(ok=False) = weekend, พร้อม next_open_utc
+        """
+        weekday      = now.weekday()   # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+        friday_close = int(cfg_sf.get("friday_close_hour", 21))
+        monday_open  = int(cfg_sf.get("monday_open_hour",   7))
+
+        # Saturday — ตลาดปิดทั้งวัน
+        if weekday == 5:
+            next_mon  = now.replace(hour=monday_open, minute=0,
+                                    second=0, microsecond=0)
+            next_mon += timedelta(days=(7 - weekday))
+            return SessionResult(
+                ok            = False,
+                is_weekend    = True,
+                blocked_reason= "Saturday — Forex market closed",
+                next_open_utc = next_mon,
+            )
+
+        # Sunday — ปิดจนถึง monday_open
+        if weekday == 6 and now.hour < monday_open:
+            next_open = now.replace(hour=monday_open, minute=0,
+                                    second=0, microsecond=0)
+            return SessionResult(
+                ok            = False,
+                is_weekend    = True,
+                blocked_reason= f"Sunday before {monday_open:02d}:00 UTC",
+                next_open_utc = next_open,
+            )
+
+        # Friday หลัง friday_close
+        if weekday == 4 and now.hour >= friday_close:
+            days_to_mon = 3   # Fri → Mon = 3 days
+            next_open   = (now + timedelta(days=days_to_mon)).replace(
+                hour=monday_open, minute=0, second=0, microsecond=0
+            )
+            return SessionResult(
+                ok            = False,
+                is_weekend    = True,
+                blocked_reason= f"Friday close (after {friday_close:02d}:00 UTC)",
+                next_open_utc = next_open,
+            )
+
+        return SessionResult(ok=True)  # ไม่ใช่ weekend
+
+    # ══════════════════════════════════════════════════════════
+    # [4] NEW — DST-Aware Session Times
+    # ══════════════════════════════════════════════════════════
+
+    def _build_session_hours(
+        self,
+        now   : datetime,
+        cfg_sf: dict,
+    ) -> dict:
+        """
+        คืน session hours (UTC) ที่ปรับตาม US DST แล้ว
+
+        Returns:
+            {
+                "Sydney"  : (21,  6),
+                "Tokyo"   : ( 0,  9),
+                "London"  : ( 7, 16),
+                "New York": (12, 21),   # EDT / (13, 22) ถ้า EST
+            }
+        """
+        use_dst    = cfg_sf.get("use_dst", True)
+        us_dst_now = self._is_us_dst(now) if use_dst else False
+
+        # New York: EDT (UTC-4) vs EST (UTC-5)
+        ny_open  = 12 if us_dst_now else 13
+        ny_close = 21 if us_dst_now else 22
+
+        # London: 07:00-16:00 UTC ตลอดปี
+        # (BST = UTC+1 แต่ตลาดยังเปิด 8am local = 07:00 UTC ฤดูร้อน)
+
+        # Custom overrides จาก config (ถ้ามี)
+        custom = cfg_sf.get("session_hours_utc", {})
+
+        return {
+            "Sydney"  : custom.get("Sydney",   (21,  6)),
+            "Tokyo"   : custom.get("Tokyo",    ( 0,  9)),
+            "London"  : custom.get("London",   ( 7, 16)),
+            "New York": custom.get("New York", (ny_open, ny_close)),
+        }
+
+    def _is_us_dst(self, dt: datetime) -> bool:
+        """
+        ตรวจว่าตอนนี้ US อยู่ใน DST (EDT) หรือไม่
+        DST: 2nd Sunday March → 1st Sunday November
+        """
+        year = dt.year
+
+        # Second Sunday of March (spring forward)
+        mar1        = datetime(year, 3, 1, tzinfo=timezone.utc)
+        wday_mar1   = mar1.weekday()          # 0=Mon … 6=Sun
+        days_to_sun = (6 - wday_mar1) % 7
+        spring      = mar1 + timedelta(days=days_to_sun + 7)  # +7 = 2nd Sunday
+        spring      = spring.replace(hour=7)  # 02:00 ET ≈ 07:00 UTC
+
+        # First Sunday of November (fall back)
+        nov1        = datetime(year, 11, 1, tzinfo=timezone.utc)
+        wday_nov1   = nov1.weekday()
+        days_to_sun = (6 - wday_nov1) % 7
+        fall        = nov1 + timedelta(days=days_to_sun)
+        fall        = fall.replace(hour=6)    # 02:00 ET ≈ 06:00 UTC (now EST)
+
+        now_utc = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return spring <= now_utc < fall
+
+    # ══════════════════════════════════════════════════════════
+    # [4] NEW — Session Helpers
+    # ══════════════════════════════════════════════════════════
+
+    def _get_allowed_sessions(
+        self,
+        symbol: Optional[str],
+        cfg_sf: dict,
+    ) -> list:
+        """ดึง allowed sessions สำหรับ symbol (per-symbol override ถ้ามี)"""
+        default = cfg_sf.get("allowed_sessions", ["London", "New York"])
+
+        # Per-symbol override
+        sym_override = cfg_sf.get("symbol_sessions", {})
+        if symbol and symbol in sym_override:
+            return list(sym_override[symbol])
+
+        # ลอง strip 'm' suffix (XAUUSDm → XAUUSD)
+        if symbol:
+            base = symbol.rstrip("m")
+            if base in sym_override:
+                return list(sym_override[base])
+
+        return list(default)
+
+    def _is_open(
+        self,
+        hours     : tuple,
+        current_h : int,
+        current_m : int = 0,
+    ) -> bool:
+        """
+        ตรวจว่า session เปิดอยู่ไหม
+        รองรับ session ที่ข้ามเที่ยงคืน (เช่น Sydney 21:00-06:00)
+        """
+        open_h, close_h = hours
+        t = current_h + current_m / 60.0
+
+        if open_h < close_h:
+            # ปกติ (เช่น London 07-16)
+            return open_h <= t < close_h
+        else:
+            # ข้ามเที่ยงคืน (เช่น Sydney 21-06)
+            return t >= open_h or t < close_h
+
+    def _hours_until(
+        self, open_h: int, current_h: int, current_m: int
+    ) -> float:
+        """ชั่วโมงที่เหลือก่อน session จะเปิด"""
+        t      = current_h + current_m / 60.0
+        target = float(open_h)
+        if target <= t:
+            target += 24  # วันถัดไป
+        return target - t
+
+    def _next_allowed_open(
+        self,
+        now          : datetime,
+        allowed      : list,
+        session_hours: dict,
+        cfg_sf       : dict,
+    ) -> Optional[datetime]:
+        """
+        หาเวลา UTC ที่ session ถัดไปจะเปิด
+        คืน datetime UTC หรือ None ถ้าหาไม่ได้
+        """
+        min_wait = float("inf")
+        for name in allowed:
+            if name not in session_hours:
+                continue
+            hours_away = self._hours_until(
+                session_hours[name][0], now.hour, now.minute
+            )
+            min_wait = min(min_wait, hours_away)
+
+        if min_wait == float("inf"):
+            return None
+
+        return (now + timedelta(hours=min_wait)).replace(
+            minute=0, second=0, microsecond=0
+        )
+
+    def _next_overlap_open(
+        self,
+        now          : datetime,
+        session_hours: dict,
+    ) -> Optional[datetime]:
+        """เวลาที่ London+NY overlap จะเริ่ม (12:00 EDT หรือ 13:00 EST)"""
+        ny_open    = session_hours.get("New York", (12, 21))[0]
+        hours_away = self._hours_until(ny_open, now.hour, now.minute)
+        return (now + timedelta(hours=hours_away)).replace(
+            minute=0, second=0, microsecond=0
+        )

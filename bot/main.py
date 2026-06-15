@@ -17,7 +17,8 @@ Defense layers ทุก tick:
   [2] MT5 connection     → auto-reconnect (ensure_connected)
   [3] Circuit breaker    → auto-pause
   [4] News window        → skip tick
-  [4.5] Regime detection → skip tick ถ้า volatile/low-conf  ← ใหม่
+  [4.5] Session filter   → skip tick ถ้าออกนอก London/NY  ← ใหม่
+  [4.7] Regime detection → skip tick ถ้า volatile/low-conf
   [5] Per-symbol: spread → regime-aware signal → execute
 ════════════════════════════════════════════════════════════
 """
@@ -36,12 +37,10 @@ import schedule
 import MetaTrader5 as mt5
 
 # ✅ FIX BUG-1: ใช้ setup_logging() แทน dictConfig โดยตรง
-#    setup_logging สร้าง logs/ directory และ import log_formatter ก่อน
 from bot.setup_logging import setup_logging
 setup_logging()   # ← ต้องเรียกก่อน import อื่นๆ ทั้งหมด
 
 # ✅ FIX BUG-2+5+7: ใช้ get_config() แทน yaml.safe_load โดยตรง
-#    get_config() โหลด .env + validate + deep copy ครบถ้วน
 from config import get_config, validate_config, reload_config
 CFG = get_config()
 
@@ -55,9 +54,7 @@ from bot.metrics_writer  import MetricsWriter, init_db
 from bot.notifier        import notify
 from features.pipeline   import build_features_live
 from models.strategies   import ACTIVE_STRATEGY
-
-# [import] NEW — Regime Detection ──────────────────────────────
-from features.regime import RegimeDetector
+from features.regime     import RegimeDetector
 
 
 # ══════════════════════════════════════════════════════════════
@@ -78,16 +75,15 @@ class BotState:
         self.config_mtime   = Path("config.yaml").stat().st_mtime
 
         # Components (init ใน startup())
-        self.client          : MT5Client     = None
-        self.risk            : RiskManager   = None
-        self.executor        : OrderExecutor = None
-        self.writer          : MetricsWriter = None
-        self.strategy                        = None
-        self.news_filter     : NewsFilter    = NewsFilter()
-        self.regime_detector : RegimeDetector = None   # [init] NEW
+        self.client          : MT5Client      = None
+        self.risk            : RiskManager    = None
+        self.executor        : OrderExecutor  = None
+        self.writer          : MetricsWriter  = None
+        self.strategy                         = None
+        self.news_filter     : NewsFilter     = NewsFilter()
+        self.regime_detector : RegimeDetector = None
 
         # Cooldown tracking
-        # ป้องกันเทรดซ้ำ symbol เดียวกันถี่เกินไป
         self.last_trade_time: dict = {}
 
         # Error tracking per symbol
@@ -136,7 +132,6 @@ def startup():
     log.info("=" * 60)
 
     # ── 0. Validate Config ──────────────────────────────────────
-    # ✅ FIX BUG-5: ตรวจ .env + config.yaml ครบก่อน start
     validate_config(raise_on_error=True)
     log.info("✅ Config validated")
 
@@ -163,15 +158,14 @@ def startup():
     STATE.strategy = ACTIVE_STRATEGY()
     log.info("✅ Components initialized")
 
-    # ── 4.5 Init RegimeDetector (NEW) ──────────────────────────
-    # [init ก่อน loop]
+    # ── 4.5 Init RegimeDetector ────────────────────────────────
     try:
         STATE.regime_detector = RegimeDetector()
         log.info("✅ RegimeDetector initialized")
     except Exception as e:
         log.warning(
             f"⚠️  RegimeDetector init failed (non-fatal): {e} "
-            f"— regime filter ถูกปิด"
+            f"— regime filter disabled"
         )
         STATE.regime_detector = None
 
@@ -202,7 +196,16 @@ def startup():
     )
     STATE.writer.write_account(acc)
 
-    # ── 8. Notify Start ────────────────────────────────────────
+    # ── 8. Log Session Status ──────────────────────────────────
+    try:
+        sessions = STATE.risk.get_all_session_info()
+        for s in sessions:
+            status = "🟢 OPEN" if s.is_open else f"⏳ opens in {s.opens_in_h:.1f}h"
+            log.info(f"   {s.emoji} {s.name} ({s.range_str}): {status}")
+    except Exception:
+        pass
+
+    # ── 9. Notify Start ────────────────────────────────────────
     notify(
         f"✅ *Bot Started*\n"
         f"Strategy: v{ACTIVE_STRATEGY.VERSION}\n"
@@ -235,7 +238,7 @@ def _check_models_exist() -> list:
 def run_tick(symbol: str):
     """
     1 tick สำหรับ 1 symbol
-    ราคา → features → regime check → predict → (order ถ้า signal ดี)
+    ราคา → features → session/regime check → predict → order
     """
     t0 = time.time()
 
@@ -250,8 +253,16 @@ def run_tick(symbol: str):
             log.info(f"⚠️  {symbol}: news window — skip")
             return
 
-        # ── 1.7 Regime Detection (NEW) ────────────────────────
-        # [ใน loop — หลัง news filter, ก่อน signal gen]
+        # ── 1.6 Session Filter (NEW) ──────────────────────────
+        # ใน per-symbol loop — หลัง news filter, ก่อน signal gen
+        sess = STATE.risk.check_session(symbol=symbol)
+        if not sess.ok:
+            log.debug(f"[{symbol}] {sess}")
+            return
+        if sess.is_overlap:
+            log.info(f"[{symbol}] ⚡ London+NY Overlap — prime zone")
+
+        # ── 1.7 Regime Detection ──────────────────────────────
         regime = None
         if STATE.regime_detector is not None:
             try:
@@ -260,7 +271,7 @@ def run_tick(symbol: str):
                 )
                 log.info(f"  [{symbol}] Regime: {regime}")
 
-                if not regime.should_trade:        # volatile + low confidence
+                if not regime.should_trade:
                     log.info(
                         f"  [{symbol}] regime={regime} "
                         f"— skip tick (volatile/low-conf)"
@@ -279,9 +290,7 @@ def run_tick(symbol: str):
         STATE.writer.write_account(acc)
 
         if not STATE.risk.check_daily_loss(acc['balance']):
-            log.warning(
-                f"🛑 Daily loss limit — stop all trading today"
-            )
+            log.warning("🛑 Daily loss limit — stop all trading today")
             STATE.executor.close_all()
             notify(
                 f"🛑 *Daily Loss Limit Hit*\n"
@@ -291,8 +300,6 @@ def run_tick(symbol: str):
             return
 
         # ── 3. ดึงราคาล่าสุด ─────────────────────────────────
-        # ✅ FIX BUG-3: เพิ่ม H4, D1, W1 ที่ขาดหายไป
-        # ✅ FIX BUG-4: ส่ง string "M15" ให้ get_ohlcv ไม่ใช่ integer
         valid_tfs  = {"M1","M5","M15","M30","H1","H4","D1","W1"}
         primary_tf = STATE.timeframe
         if primary_tf not in valid_tfs:
@@ -327,14 +334,8 @@ def run_tick(symbol: str):
             log.info(f"{symbol}: cooldown active — skip")
             return
 
-        # ── 7. Regime-Aware Signal (NEW) ──────────────────────
-        # [3] แก้ call: ensemble.predict() → ensemble.predict_with_regime()
-        #
-        # ถ้า strategy มี ensemble และ detect regime ได้
-        #   → ใช้ predict_with_regime() เป็น final gate ก่อน execute
-        # ถ้าไม่มี → fallback ไป setup.is_valid ตามเดิม
+        # ── 7. Regime-Aware Signal ────────────────────────────
         if regime is not None and hasattr(STATE.strategy, 'ensemble'):
-            # ใหม่: regime-aware signal
             reg_result = STATE.strategy.ensemble.predict_with_regime(
                 df, regime, symbol
             )
@@ -353,7 +354,6 @@ def run_tick(symbol: str):
                 f"threshold={reg_result['threshold_used']:.3f}"
             )
         else:
-            # fallback: ใช้ strategy.evaluate ตามเดิม
             is_valid = setup.is_valid
 
         # ── 8. Send Order ─────────────────────────────────────
@@ -364,17 +364,13 @@ def run_tick(symbol: str):
                 sl_distance = setup.sl_distance,
                 tp_distance = setup.tp_distance,
                 confidence  = setup.confidence,
-                comment     = (
-                    f"v{ACTIVE_STRATEGY.VERSION}_"
-                    f"{setup.session}_"
-                    f"c{setup.confidence:.2f}"
-                    + (f"_r{regime.state.name}"
-                       if regime is not None and hasattr(regime.state, 'name')
-                       else "")
-                ),
+                comment     = "bot_trade",  # ⬅️ แก้ให้สั้นๆ ปลอดภัย MT5 ไม่เตะออกแน่นอน
             )
 
-            if result['success']:
+            # ⬅️ แก้ไขวิธีการเรียกเช็คผลลัพธ์จาก result['success'] เป็น result.success
+            is_success = getattr(result, 'success', False)
+
+            if is_success:
                 # บันทึก trade และ update cooldown
                 STATE.last_trade_time[symbol] = time.time()
                 STATE.symbol_errors[symbol]   = 0
@@ -382,10 +378,8 @@ def run_tick(symbol: str):
                     symbol, setup.direction, setup.confidence
                 )
             else:
-                log.warning(
-                    f"{symbol} order failed: "
-                    f"{result.get('reason','unknown')}"
-                )
+                err_msg = getattr(result, 'error', getattr(result, 'reason', 'unknown'))
+                log.warning(f"{symbol} order failed: {err_msg}")
 
         else:
             # Log ว่าทำไมไม่เทรด
@@ -401,12 +395,8 @@ def run_tick(symbol: str):
 
     except Exception as e:
         STATE.increment_error(symbol)
-        log.error(
-            f"❌ {symbol} tick error: {e}",
-            exc_info=True,
-        )
+        log.error(f"❌ {symbol} tick error: {e}", exc_info=True)
 
-        # ถ้า error มากเกิน threshold → notify
         if STATE.symbol_errors.get(symbol, 0) >= 5:
             notify(
                 f"⚠️ *{symbol} repeated errors*\n"
@@ -416,10 +406,7 @@ def run_tick(symbol: str):
 
 
 def _check_cooldown(symbol: str, direction: int) -> bool:
-    """
-    ป้องกันเปิด order ซ้ำ symbol เดิมถี่เกินไป
-    cooldown_min จาก config
-    """
+    """ป้องกันเปิด order ซ้ำ symbol เดิมถี่เกินไป"""
     if direction == 0:
         return True   # HOLD ไม่ต้อง check cooldown
 
@@ -429,9 +416,7 @@ def _check_cooldown(symbol: str, direction: int) -> bool:
 
     if elapsed < cooldown:
         remaining = int((cooldown - elapsed) / 60)
-        log.debug(
-            f"{symbol}: cooldown {remaining}min remaining"
-        )
+        log.debug(f"{symbol}: cooldown {remaining}min remaining")
         return False
     return True
 
@@ -453,7 +438,6 @@ def run_all_symbols():
     _check_config_reload()
 
     # ── [2] MT5 connection → auto-reconnect ───────────────────
-    # ✅ FIX: ตรวจ return value ด้วย — ถ้า reconnect ล้มเหลวให้ skip tick นี้
     if not STATE.client.ensure_connected():
         log.critical(
             f"[tick {STATE.tick_count}] "
@@ -466,12 +450,11 @@ def run_all_symbols():
     if cb_result.triggered:
         log.critical(f"⛔ CIRCUIT BREAKER: {cb_result}")
         STATE.set_pause(True)
-        return   # skip this tick entirely
+        return
     elif STATE.is_paused():
-        # CB auto-resumed → clear flag ถ้า CB ไม่ triggered
         STATE.set_pause(False)
 
-    # ── [4][4.5][5] Per-symbol ────────────────────────────────
+    # ── [4][4.5][4.7][5] Per-symbol ──────────────────────────
     for sym in CFG['symbols']['active']:
         run_tick(sym)
 
@@ -482,7 +465,7 @@ def run_all_symbols():
     except Exception as e:
         log.warning(f"Account write error: {e}")
 
-    # ── Periodic connection stats (ทุก 10 tick) ───────────────
+    # ── Periodic stats (ทุก 10 tick) ─────────────────────────
     if STATE.tick_count % 10 == 0:
         try:
             conn = STATE.client.get_connection_stats()
@@ -490,9 +473,7 @@ def run_all_symbols():
                 f"[conn stats @ tick {STATE.tick_count}] "
                 f"MT5={'OK' if conn['connected'] else 'DISCONNECTED'} "
                 f"reconnects={conn['total_reconnects']} "
-                f"disconnects={conn['total_disconnects']} "
-                f"success_rate={conn['reconnect_success_rate']}% "
-                f"uptime={conn['uptime_seconds']:.0f}s"
+                f"success_rate={conn['reconnect_success_rate']}%"
             )
         except Exception:
             pass
@@ -517,7 +498,6 @@ def _daily_summary():
             f"(success {conn['reconnect_success_rate']}%)"
         )
 
-        # Reset daily tracking
         STATE.risk.reset_daily()
         STATE.tick_count = 0
 
@@ -544,10 +524,7 @@ def _weekly_retrain():
 
 
 def _check_config_reload():
-    """
-    Hot-reload config.yaml ถ้าไฟล์เปลี่ยน
-    ✅ FIX BUG-6: update STATE.symbols และ STATE.timeframe ด้วย
-    """
+    """Hot-reload config.yaml ถ้าไฟล์เปลี่ยน"""
     global CFG
     try:
         project_root = Path(__file__).parent.parent
@@ -555,9 +532,8 @@ def _check_config_reload():
         new_mtime    = yaml_path.stat().st_mtime
 
         if new_mtime != STATE.config_mtime:
-            CFG = reload_config()           # ใช้ reload_config() จาก config.py
+            CFG = reload_config()
             STATE.config_mtime = new_mtime
-            # ✅ sync STATE กับ config ใหม่
             STATE.symbols   = CFG['symbols']['active']
             STATE.timeframe = CFG['symbols']['primary_timeframe']
             log.info(
@@ -572,22 +548,14 @@ def _check_config_reload():
 # Graceful Shutdown
 # ══════════════════════════════════════════════════════════════
 def _handle_shutdown(signum, frame):
-    """
-    จัดการ shutdown อย่างสะอาด
-    ปิด position ทั้งหมดและ disconnect MT5
-    """
+    """จัดการ shutdown อย่างสะอาด"""
     log.info("🛑 Shutdown signal received...")
     STATE.running = False
 
     try:
-        # ปิด pending orders (optional — comment ถ้าไม่ต้องการ)
-        # STATE.executor.close_all()
-
-        # Disconnect MT5
         if STATE.client:
             STATE.client.disconnect()
 
-        # Final account snapshot
         notify(
             f"🛑 *Bot Stopped*\n"
             f"Ticks: {STATE.tick_count}\n"
@@ -605,43 +573,30 @@ def _handle_shutdown(signum, frame):
 # Main Entry Point
 # ══════════════════════════════════════════════════════════════
 def main():
-    """
-    Entry point — เรียกจาก NSSM service หรือ run_bot.bat
-    """
-    # ── Graceful shutdown handlers ────────────────────────────
+    """Entry point — เรียกจาก NSSM service หรือ run_bot.bat"""
     signal.signal(signal.SIGTERM, _handle_shutdown)
     signal.signal(signal.SIGINT,  _handle_shutdown)
 
-    # ── Startup ───────────────────────────────────────────────
     try:
         startup()
     except Exception as e:
         log.critical(f"Startup failed: {e}", exc_info=True)
         sys.exit(1)
 
-    # ── Schedule Jobs ─────────────────────────────────────────
     interval = CFG['symbols']['primary_timeframe']
     minutes  = int(interval.replace('M','').replace('H','')) \
                 if 'M' in interval else \
                 int(interval.replace('H','')) * 60
 
-    # Main tick — ทุก 15 นาที
     schedule.every(minutes).minutes.do(run_all_symbols)
 
-    # Daily summary — ทุกเที่ยงคืน UTC
     summary_hour = CFG['notifications']['daily_summary_hour']
-    schedule.every().day.at(f"{summary_hour:02d}:00").do(
-        _daily_summary
-    )
-
-    # Weekly retrain — ทุกวันอาทิตย์ ตี 2
+    schedule.every().day.at(f"{summary_hour:02d}:00").do(_daily_summary)
     schedule.every().sunday.at("02:00").do(_weekly_retrain)
 
-    # รัน tick แรกทันที (ไม่รอรอบถัดไป)
     log.info("▶ Running initial tick...")
     run_all_symbols()
 
-    # ── Main Loop ─────────────────────────────────────────────
     log.info(
         f"⏱  Scheduler: every {minutes} min | "
         f"daily summary: {summary_hour:02d}:00 UTC"
@@ -661,26 +616,19 @@ def main():
 
         except Exception as e:
             consecutive_errors += 1
-            log.error(
-                f"Main loop error #{consecutive_errors}: {e}",
-                exc_info=True,
-            )
+            log.error(f"Main loop error #{consecutive_errors}: {e}", exc_info=True)
 
-            # ถ้า error ติดต่อกัน 10 ครั้ง → restart service
             if consecutive_errors >= 10:
-                log.critical(
-                    "Too many consecutive errors — "
-                    "requesting restart"
-                )
+                log.critical("Too many consecutive errors — requesting restart")
                 notify(
                     f"🚨 *Bot Critical Error*\n"
                     f"10 consecutive errors\n"
                     f"Restarting service...\n"
                     f"Last error: {str(e)[:200]}"
                 )
-                sys.exit(1)   # NSSM จะ restart อัตโนมัติ
+                sys.exit(1)
 
-            time.sleep(30)    # รอก่อน retry
+            time.sleep(30)
 
 # ── Helpers ────────────────────────────────────────────────────
 def _now_str() -> str:
