@@ -1,0 +1,39 @@
+{
+  "symbol": "EURUSDm",
+  "seq_len": 60,
+  "n_features": 296,
+  "trained_at": "2026-06-15T19:02:02.838198+00:00",
+  "is_acceptable": "True",
+  "mean_accuracy": 0.5961,
+  "mean_f1": 0.4036,
+  "std_accuracy": 0.0148,
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2026-01-20\u21922026-02-24",
+      "test_period": "2026-02-25\u21922026-04-02",
+      "accuracy": 0.6169,
+      "f1_macro": 0.3391,
+      "best_epoch": 29,
+      "train_loss": 0.4053
+    },
+    {
+      "fold": 2,
+      "train_period": "2026-01-20\u21922026-04-01",
+      "test_period": "2026-04-02\u21922026-05-08",
+      "accuracy": 0.5878,
+      "f1_macro": 0.435,
+      "best_epoch": 10,
+      "train_loss": 0.5247
+    },
+    {
+      "fold": 3,
+      "train_period": "2026-01-20\u21922026-05-07",
+      "test_period": "2026-05-08\u21922026-06-15",
+      "accuracy": 0.5837,
+      "f1_macro": 0.4366,
+      "best_epoch": 18,
+      "train_loss": 0.4543
+    }
+  ]
+}

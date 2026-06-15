@@ -12,7 +12,6 @@ Feature Engineering Pipeline
 รันด้วย: python features/pipeline.py
 หรือเรียกจาก scripts/retrain_all.py อัตโนมัติ
 """
-
 import sys
 from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +28,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
+from features.order_flow import add_order_flow_features
 
 # ✅ FIX BUG-2: ใช้ get_config() แทน yaml.safe_load
 from config import get_config

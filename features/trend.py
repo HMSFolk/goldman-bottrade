@@ -15,7 +15,6 @@ import logging
 
 log = logging.getLogger("features")
 
-
 def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     เพิ่ม trend features ทั้งหมดเข้า DataFrame
@@ -145,64 +144,36 @@ def _add_macd(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ══════════════════════════════════════════════════════════════
 # 3. ADX — Average Directional Index
 # ══════════════════════════════════════════════════════════════
-def _add_adx(df: pd.DataFrame,
-             period: int = 14) -> pd.DataFrame:
+import ta  # เพิ่ม import ta ไว้เหนือฟังก์ชัน
+
+def _add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
-    ADX วัดความแรงของ trend (ไม่บอกทิศทาง)
-    +DI = แรง bullish | -DI = แรง bearish
-
-    ADX > 25 = trend ชัดเจน (เหมาะเทรดตาม trend)
-    ADX < 20 = sideways (ระวัง — EMA cross ไม่น่าเชื่อถือ)
-    ADX > 40 = trend แรงมาก (ระวัง overextend)
+    ADX วัดความแรงของ trend ด้วย library 'ta' (ปลอดภัย 0-100 เสมอ)
     """
-    h = df['high']
-    l = df['low']
-    c = df['close']
-
-    # True Range
-    tr = pd.concat([
-        h - l,
-        (h - c.shift(1)).abs(),
-        (l - c.shift(1)).abs(),
-    ], axis=1).max(axis=1)
-
-    atr = tr.ewm(span=period, adjust=False).mean()
-
-    # Directional Movement
-    dm_plus  = h.diff().clip(lower=0)
-    dm_minus = (-l.diff()).clip(lower=0)
-
-    # ถ้า +DM > -DM ให้ใช้ +DM ไม่งั้นใช้ 0
-    cond     = dm_plus > dm_minus
-    dm_plus  = dm_plus.where(cond, 0)
-    dm_minus = dm_minus.where(~cond, 0)
-
-    di_plus  = 100 * dm_plus.ewm( span=period, adjust=False).mean() / atr
-    di_minus = 100 * dm_minus.ewm(span=period, adjust=False).mean() / atr
-
-    dx       = 100 * (di_plus - di_minus).abs() / (di_plus + di_minus + 1e-9)
-    adx      = dx.ewm(span=period, adjust=False).mean()
-
-    df['adx']     = adx
-    df['adx_pos'] = di_plus    # +DI
-    df['adx_neg'] = di_minus   # -DI
+    # คำนวณ ADX โดยใช้ไลบรารีมาตรฐาน
+    adx_ind = ta.trend.ADXIndicator(
+        high=df['high'], 
+        low=df['low'], 
+        close=df['close'], 
+        window=period,
+        fillna=True
+    )
+    
+    df['adx']     = adx_ind.adx()
+    df['adx_pos'] = adx_ind.adx_pos()
+    df['adx_neg'] = adx_ind.adx_neg()
 
     # ── ADX Signals ────────────────────────────────────────────
     df['adx_trending']  = (df['adx'] > 25).astype(int)
     df['adx_strong']    = (df['adx'] > 40).astype(int)
     df['adx_di_bull']   = (df['adx_pos'] > df['adx_neg']).astype(int)
     df['adx_di_cross']  = df['adx_di_bull'].diff().fillna(0)
-    # +1 = +DI ข้าม -DI ขึ้น (bullish trend เริ่ม)
-    # -1 = +DI ข้าม -DI ลง  (bearish trend เริ่ม)
-
     df['adx_growing']   = (df['adx'] > df['adx'].shift(3)).astype(int)
 
     return df
-
 
 # ══════════════════════════════════════════════════════════════
 # 4. Ichimoku Cloud
@@ -278,7 +249,6 @@ def _add_ichimoku(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
 
     return df
-
 
 # ══════════════════════════════════════════════════════════════
 # 5. Supertrend

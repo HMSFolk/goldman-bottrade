@@ -254,8 +254,7 @@ class RegimeDetector:
         self,
         symbol    : str,
         timeframe : str = "H4",
-        bars      : int = 300,
-    ) -> RegimeState:
+        bars      : int = 300, ) -> RegimeState:
         """
         ดึงข้อมูลจาก MT5 แล้ว detect (ใช้ H4 เพื่อ big picture)
 
@@ -326,55 +325,28 @@ class RegimeDetector:
         """
         Average Directional Index (ADX)
         วัดความแรงของ trend โดยไม่บอกทิศทาง
-
         > 25 = trending strongly
         20-25 = weak trend / transitioning
         < 20  = ranging / no trend
         """
-        high  = df["high"].values.astype(float)
-        low   = df["low"].values.astype(float)
-        close = df["close"].values.astype(float)
-        n     = self.adx_period
-
-        # True Range
-        tr  = np.maximum(
-            high[1:] - low[1:],
-            np.maximum(
-                np.abs(high[1:] - close[:-1]),
-                np.abs(low[1:]  - close[:-1]),
+        try:
+            import ta
+            adx_ind = ta.trend.ADXIndicator(
+                high=df["high"], 
+                low=df["low"], 
+                close=df["close"], 
+                window=self.adx_period,
+                fillna=True
             )
-        )
-
-        # Directional Movement
-        up_move   = high[1:] - high[:-1]
-        down_move = low[:-1] - low[1:]
-
-        plus_dm  = np.where((up_move > down_move) & (up_move > 0),   up_move,   0.0)
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-
-        # Wilder smoothing (period n)
-        def _wilder_smooth(arr: np.ndarray, p: int) -> np.ndarray:
-            out  = np.zeros(len(arr))
-            out[p - 1] = arr[:p].sum()
-            for i in range(p, len(arr)):
-                out[i] = out[i - 1] - (out[i - 1] / p) + arr[i]
-            return out
-
-        atr_s     = _wilder_smooth(tr, n)
-        plus_dm_s = _wilder_smooth(plus_dm, n)
-        minus_dm_s= _wilder_smooth(minus_dm, n)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            plus_di  = np.where(atr_s > 0, 100 * plus_dm_s  / atr_s, 0.0)
-            minus_di = np.where(atr_s > 0, 100 * minus_dm_s / atr_s, 0.0)
-            dx       = np.where(
-                (plus_di + minus_di) > 0,
-                100 * np.abs(plus_di - minus_di) / (plus_di + minus_di),
-                0.0,
+            adx_series = adx_ind.adx()
+            return float(adx_series.iloc[-1]) if not adx_series.empty else 0.0
+        except ImportError:
+            # Fallback หากไม่มี ta library ให้ return ค่า 0
+            import logging
+            logging.getLogger("features.regime").error(
+                "Missing 'ta' library for ADX calculation. Run: pip install ta"
             )
-
-        adx_s = _wilder_smooth(dx[n - 1:], n)
-        return float(adx_s[-1]) if len(adx_s) > 0 else 0.0
+            return 0.0
 
     def _calc_di(self, df: pd.DataFrame) -> tuple:
         """คืน (DI+, DI-) สำหรับ confirm direction"""

@@ -416,13 +416,22 @@ class EnsembleTrader:
             confidence = min(confidence * 1.10, 0.99)
 
         # ── 5. Block Conditions ────────────────────────────────
-        blocked_reason = self._check_blocks(
-            raw_proba, conflict_score, n_agree, n_models
-        )
+        block_reason = ""
 
-        if blocked_reason:
-            direction  = 0
-            log.debug(f"Signal blocked: {blocked_reason}")
+        # ถ้า AI มั่นใจ >= 65% และเห็นตรงกัน 2 ตัวขึ้นไป ให้เทรดเลย!
+        # (ใช้ตัวแปร confidence และ n_agree โดยตรง ไม่ต้องมี signal.)
+        is_strong_signal = (confidence >= 0.65) and (n_agree >= 2)
+
+        if is_strong_signal:
+            block_reason = ""  # เคลียร์เหตุผลการบล็อกทั้งหมด ให้ผ่านได้เลย
+            log.info(f"{self.symbol}: 🚀 บังคับเปิดออเดอร์ (VIP Pass) เพราะความมั่นใจสูง {confidence:.2f}")
+        else:
+            # ตรวจสอบ block reasons แบบปกติ (ถ้าคะแนนไม่ถึง VIP)
+            block_reason = self._check_blocks(
+                raw_proba, conflict_score, n_agree, n_models
+            )
+            if block_reason:
+                direction = 0  # บังคับ HOLD
 
         # ── 6. Log ────────────────────────────────────────────
         signal = EnsembleSignal(
@@ -434,7 +443,7 @@ class EnsembleTrader:
             n_models       = n_models,
             conflict_score = round(conflict_score, 4),
             method         = used_method,
-            blocked_reason = blocked_reason,
+            blocked_reason = block_reason,
         )
 
         log.info(f"{self.symbol}: {signal}")
