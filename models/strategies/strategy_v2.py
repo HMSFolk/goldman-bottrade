@@ -67,7 +67,7 @@ class TradeSetup:
             self.direction  != 0 and
             self.confidence >= CFG['signal']['min_confidence'] and
             self.sl_distance > 0 and
-            self.rr_ratio    >= 1.5
+            self.rr_ratio    >= 1.0
         )
 
     def __str__(self):
@@ -132,8 +132,7 @@ class StrategyV2:
     def evaluate(
         self,
         df:     pd.DataFrame,
-        symbol: str,
-    ) -> TradeSetup:
+        symbol: str, ) -> TradeSetup:
         setup = TradeSetup()
         row   = df.iloc[-1]
 
@@ -261,34 +260,33 @@ class StrategyV2:
     # V2-Specific Filters
     # ══════════════════════════════════════════════════════════
     def _check_session_v2(
-        self, row: pd.Series
-    ) -> tuple[bool, str, str]:
+        self, row: pd.Series ) -> tuple[bool, str, str]:
         """
-        V2: เทรดเฉพาะ Overlap session เท่านั้น
-        (เข้มกว่า V1 ที่รับทั้ง London + NY)
-
-        London/NY Overlap: 12:00-16:00 UTC
-        Gold ผันผวนสูงที่สุดและ spread ดีที่สุดช่วงนี้
+        V2 (Modified): อนุญาตให้เทรดทั้ง London, NY และช่วง Overlap
+        บล็อกเฉพาะช่วง Asian session ที่กราฟมักจะไซด์เวย์
         """
         is_overlap = row.get('is_overlap_session', 0)
+        is_london  = row.get('is_london_session', 0)
+        is_ny      = row.get('is_ny_session', 0)
 
-        if is_overlap != 1:
-            # ดู session ปัจจุบันเพื่อ log ที่ดีกว่า
-            is_london = row.get('is_london_session', 0)
-            is_ny     = row.get('is_ny_session', 0)
-
-            if is_london == 0 and is_ny == 0:
-                return False, "asian_session", "asian"
-            elif is_london == 1:
-                return False, "london_not_overlap", "london"
-            else:
-                return False, "ny_not_overlap", "newyork"
-
-        return True, "", "overlap"
+        # ถ้าเป็นช่วง Overlap (ลอนดอนซ้อนนิวยอร์ก) ให้ผ่าน
+        if is_overlap == 1:
+            return True, "", "overlap"
+            
+        # ถ้าเป็นช่วงตลาดยุโรปเปิด ให้ผ่าน
+        elif is_london == 1:
+            return True, "", "london"
+            
+        # ถ้าเป็นช่วงตลาดอเมริกาเปิด ให้ผ่าน
+        elif is_ny == 1:
+            return True, "", "newyork"
+            
+        # ถ้าไม่ใช่ทั้ง 3 ตลาดด้านบน (เช่น ตลาดเอเชีย) ให้บล็อก
+        else:
+            return False, "asian_session_blocked", "asian"
 
     def _check_news_blackout(
-        self, row: pd.Series
-    ) -> tuple[bool, str]:
+        self, row: pd.Series ) -> tuple[bool, str]:
         """
         บล็อกการเทรด ±30 นาทีรอบข่าวสำคัญ
         V2 เพิ่ม feature นี้ — V1 ไม่มี
@@ -306,8 +304,7 @@ class StrategyV2:
         return True, ""
 
     def _check_bos(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
         """
         Break of Structure confirmation
         V2 ต้องการ BOS ยืนยันก่อนเข้า
@@ -333,8 +330,7 @@ class StrategyV2:
 
     # ── V2 Helpers (คล้าย V1 แต่ปรับนิดหน่อย) ─────────────────
     def _check_htf_alignment(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
         conflict = row.get('htf_conflict', 0)
         if conflict == 1:
             return False, "htf_conflict"
@@ -348,8 +344,7 @@ class StrategyV2:
         return True, ""
 
     def _check_volatility(
-        self, row: pd.Series
-    ) -> tuple[bool, str, str]:
+        self, row: pd.Series ) -> tuple[bool, str, str]:
         if row.get('squeeze_on', 0) == 1:
             return False, "squeeze_on", "squeeze"
 
@@ -366,8 +361,7 @@ class StrategyV2:
         return True, "", regime
 
     def _check_pattern(
-        self, row: pd.Series, direction: int
-    ) -> tuple[bool, str]:
+        self, row: pd.Series, direction: int ) -> tuple[bool, str]:
         pa_score = row.get('pa_score', 0)
         if direction ==  1 and pa_score < -2:
             return False, f"bearish_pa({pa_score:.1f})"
@@ -380,8 +374,7 @@ class StrategyV2:
         row:       pd.Series,
         direction: int,
         regime:    str,
-        rr_target: float,
-    ) -> tuple[float, float, float]:
+        rr_target: float, ) -> tuple[float, float, float]:
         """
         V2: Adaptive SL/TP + ATR Trailing Stop
 
@@ -416,8 +409,7 @@ class StrategyV2:
         )
 
     def compare_with_v1(
-        self, df: pd.DataFrame, symbol: str
-    ) -> dict:
+        self, df: pd.DataFrame, symbol: str ) -> dict:
         """เปรียบเทียบ signal V1 vs V2 บน row เดียวกัน"""
         from models.strategies.strategy_v1 import StrategyV1
         v1     = StrategyV1()

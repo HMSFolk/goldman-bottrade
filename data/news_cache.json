@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-16T14:50:44.482870+00:00",
+  "fetched_utc": "2026-06-16T15:46:35.289625+00:00",
   "events": [
     {
       "title": "BusinessNZ Services Index",
@@ -292,7 +292,7 @@
       "title": "GDT Price Index",
       "country": "NZD",
       "impact": "low",
-      "time_utc": "2026-06-16T14:50:00+00:00",
+      "time_utc": "2026-06-16T15:14:00+00:00",
       "source": "forexfactory"
     },
     {
