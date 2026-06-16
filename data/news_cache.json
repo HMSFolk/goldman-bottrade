@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-15T20:18:59.620653+00:00",
+  "fetched_utc": "2026-06-16T14:50:44.482870+00:00",
   "events": [
     {
       "title": "BusinessNZ Services Index",
@@ -187,14 +187,14 @@
       "title": "BOJ Policy Rate",
       "country": "JPY",
       "impact": "high",
-      "time_utc": "2026-06-16T02:30:00+00:00",
+      "time_utc": "2026-06-16T03:19:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Monetary Policy Statement",
       "country": "JPY",
       "impact": "high",
-      "time_utc": "2026-06-16T02:30:00+00:00",
+      "time_utc": "2026-06-16T03:19:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -222,7 +222,7 @@
       "title": "BOJ Press Conference",
       "country": "JPY",
       "impact": "high",
-      "time_utc": "2026-06-16T05:30:00+00:00",
+      "time_utc": "2026-06-16T06:30:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -250,7 +250,7 @@
       "title": "10-y Bond Auction",
       "country": "GBP",
       "impact": "low",
-      "time_utc": "2026-06-16T09:33:00+00:00",
+      "time_utc": "2026-06-16T09:02:00+00:00",
       "source": "forexfactory"
     },
     {

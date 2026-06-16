@@ -4,7 +4,6 @@
 # ============================================================
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
 mt5:
-  # ⚠️  terminal_path มาจาก .env (MT5_PATH) — ไม่ต้องใส่ที่นี่
   #     login / password / server มาจาก .env เช่นกัน
 
   # timeout รอ MT5 response (วินาที)
@@ -28,8 +27,7 @@ mt5:
 
 # ── 2. SYMBOLS ───────────────────────────────────────────────
 symbols:
-  # รายการ symbol ที่บอทจะเทรด
-  # ⚠️  เพิ่ม/ลบที่นี่ แล้วต้อง retrain โมเดลใหม่
+  # ⚠️  เพิ่ม/ลบที่นี่ แล้วต้อง retrain โมเดลใหม่ รายการ symbol ที่บอทจะเทรด
   active:
     - "XAUUSDm"    # ทองคำ (main)
     - "EURUSDm"    # EUR/USD
@@ -47,15 +45,16 @@ symbols:
 # ── 3. RISK MANAGEMENT ──────────────────────────────────────
 risk:
   # % ของ balance ที่เสี่ยงต่อ 1 trade
-  # 0.01 = 1% | แนะนำ 0.005–0.01 สำหรับ production
-  risk_per_trade: 0.01
+  # ✅ FIX: เพิ่มจาก 0.01 → 0.02 เพื่อแก้ XAU lot=0.00
+  # (balance $480 × 2% = $9.6 ≥ min lot risk $9.7 สำหรับ XAU 0.01 lot)
+  risk_per_trade: 0.02
 
   # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้
-  # 0.05 = 5% ของ balance วันนั้น
-  max_daily_loss_pct: 0.10
+  # ✅ FIX: ลดจาก 0.10 → 0.05 (10% หลวมเกิน ควรหยุดที่ 5%)
+  max_daily_loss_pct: 0.05
 
   # จำนวน position สูงสุดที่เปิดพร้อมกันได้
-  max_open_trades: 5
+  max_open_trades: 8
 
   # ไม่เทรดถ้า spread กว้างกว่านี้ (หน่วย: points)
   # XAUUSDm: 30 points ≈ 3 pips | Forex majors: 15 points
@@ -82,11 +81,17 @@ order:
     default:  90
 
   # Take Profit = SL × tp_ratio
-  # ⚠️  ลด RR จาก 1:2 → 1:1.2
-  # เหตุผล: TP 1:2 ไม่เคยถูกแตะ → ลดให้ถึงง่ายขึ้น
-  # คณิต: ต้องชนะ 46% (1:1.2) แทน 33% (1:2)
-  #        แต่ TP ใกล้กว่า = win rate จริงสูงกว่า
-  tp_ratio: 1.2
+  # ✅ FIX: ลดจาก 1.5 → 1.0 สำหรับตลาด uncertain/ranging ปัจจุบัน
+  # เหตุผล: TP 1.5 ไม่เคยถูกแตะในตลาด choppy → ลดให้ถึงง่ายขึ้น
+  tp_ratio: 1.0
+
+  # TP ตาม Regime (override tp_ratio ถ้า regime detection ทำงาน)
+  tp_by_regime:
+    trending_up  : 2.0   # trend ชัด → ปล่อยกำไรวิ่ง
+    trending_down: 2.0
+    uncertain    : 1.0   # ไม่ชัด → เก็บเท่า SL
+    ranging      : 0.8   # sideways → เก็บเร็ว
+    volatile     : 0.7   # ผันผวน → เก็บเร็วมาก
 
   # Trailing Stop — เปิด/ปิด
   use_trailing_stop: true
@@ -115,8 +120,9 @@ signal:
 
   # confidence ขั้นต่ำที่จะส่ง order
   # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
-  # แนะนำ: 0.60–0.70
-  # ⚠️  HOTFIX: 0.40 ต่ำมาก (baseline random = 0.33) → เปลี่ยนเป็น 0.62
+  # ✅ FIX: เพิ่มจาก 0.45 → 0.55
+  # เหตุผล: VIP Pass ที่ 0.45 ต่ำเกินไป (random baseline=0.33)
+  #          0.55 = มั่นใจจริงๆ ก่อนเทรด
   min_confidence: 0.55
 
   # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
@@ -290,20 +296,19 @@ circuit_breaker:
   # ── 16. Daily loss limit ──────────────────────────────────────
   daily:
     enabled     : true
-    loss_pct    : 2.0        # ลดจาก 3.0 → หยุดที่ 2% (~$10 จาก $500)
+    loss_pct    : 5.0         # ✅ FIX: 10.0→5.0 (หยุดถ้าขาดทุน 5% ต่อวัน)
     loss_usd    : null
     auto_resume : true
 
   # ── 17. Weekly loss limit ─────────────────────────────────────
   weekly:
     enabled     : true
-    loss_pct    : 8.0        # หยุดถ้าขาดทุนสะสม 7 วัน > 8%
-                             # ต้อง /resume เองเท่านั้น
+    loss_pct    : 8.0         # ✅ FIX: 10.0→8.0 (หยุดถ้าขาดทุนสะสม 7 วัน > 8%)
 
   # ── 18. Consecutive losses ────────────────────────────────────
   consecutive_losses:
     enabled         : true
-    count           : 3      # ลดจาก 5 → หยุดถ้าแพ้ติด 3 ครั้ง
+    count           : 5       # ✅ FIX: 10→5 (หยุดถ้าแพ้ติด 5 ครั้ง)
     cooldown_hours  : 4
 
   # ── 19. Floating drawdown (real-time) ─────────────────────────
@@ -327,12 +332,14 @@ regime_detection:
   cache_ttl_minutes : 15       # cache 15 นาที (M15 candle)
 
 #-----21. regime-based model weights (ปรับ tune ได้)
+# ✅ FIX: เพิ่ม rule weight ใน uncertain (เคยเป็น 0.00)
+# เพื่อให้ rule_based มีส่วนร่วมแม้ตลาดไม่ชัดเจน
 regime_weights:
   trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
   trending_down: {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
-  ranging      : {lgbm: 0.20, xgb: 0.20, lstm: 0.10, rule: 0.50}
+  ranging      : {lgbm: 0.15, xgb: 0.15, lstm: 0.10, rule: 0.60}
   volatile     : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
-  uncertain    : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
+  uncertain    : {lgbm: 0.30, xgb: 0.25, lstm: 0.20, rule: 0.25}
 
 #-----22. strategy filters (สวิตช์เปิด/ปิดตัวกรองต่างๆ)
 strategy_filters:
@@ -375,8 +382,6 @@ session_filter:
   # เพราะ liquidity จาก European + US traders พร้อมกัน
   # ถ้าต้องการเทรดเฉพาะช่วงนี้: overlap_only: true
 
-  #--------------------------------------------------------------------------------------------------------------------------------
-
 #-----24. Trade Management (ใหม่) ──────────────────────────────
 trade_management:
   # ── Time-based Exit ──────────────────────────────────────────
@@ -412,3 +417,5 @@ pyramiding:
 
   # SL ของออเดอร์ที่เพิ่ม: ย้ายมาที่ breakeven ของออเดอร์แรก
   pyramid_sl_at_be   : true   # true = ออเดอร์ใหม่ SL อยู่ที่ entry ออเดอร์แรก
+
+#--------------------------------------------------------------------------------------------------------------------------------

@@ -3,58 +3,75 @@
   "data": "ok",
   "features": "ok",
   "xgb": {
-    "active": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\active_M15_features.parquet\n\u0e23\u0e31\u0e19: python feat"
+    "XAUUSDm": {
+      "acc": 0.58,
+      "f1": 0.395,
+      "ok": false
     },
-    "primary_timeframe": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\primary_timeframe_M15_features.parquet\n\u0e23\u0e31\u0e19: "
+    "EURUSDm": {
+      "acc": 0.617,
+      "f1": 0.376,
+      "ok": false
     },
-    "htf_timeframes": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\htf_timeframes_M15_features.parquet\n\u0e23\u0e31\u0e19: pyt"
+    "GBPUSDm": {
+      "acc": 0.585,
+      "f1": 0.4,
+      "ok": false
     }
   },
   "lgbm": {
-    "active": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\active_M15_features.parquet\n\u0e23\u0e31\u0e19: python feat"
+    "XAUUSDm": {
+      "acc": 0.599,
+      "f1": 0.456,
+      "ok": true
     },
-    "primary_timeframe": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\primary_timeframe_M15_features.parquet\n\u0e23\u0e31\u0e19: "
+    "EURUSDm": {
+      "acc": 0.526,
+      "f1": 0.427,
+      "ok": true
     },
-    "htf_timeframes": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\htf_timeframes_M15_features.parquet\n\u0e23\u0e31\u0e19: pyt"
+    "GBPUSDm": {
+      "acc": 0.557,
+      "f1": 0.452,
+      "ok": true
     }
   },
   "lstm": {
-    "active": {
-      "ok": false,
-      "error": "\u0e44\u0e21\u0e48\u0e1e\u0e1a C:\\Users\\netro\\Desktop\\Goldman_Bot\\data\\processed\\active_M15_features.parquet"
+    "XAUUSDm": {
+      "acc": 0.596,
+      "f1": 0.41,
+      "ok": true
+    },
+    "EURUSDm": {
+      "acc": 0.584,
+      "f1": 0.364,
+      "ok": false
+    },
+    "GBPUSDm": {
+      "acc": 0.572,
+      "f1": 0.44,
+      "ok": true
     }
   },
   "verify": {
-    "active": "partial",
-    "primary_timeframe": "partial",
-    "htf_timeframes": "partial"
+    "XAUUSDm": "ok",
+    "EURUSDm": "ok",
+    "GBPUSDm": "ok"
   },
   "backtest": {
-    "active": {
+    "XAUUSDm": {
       "passed": false,
-      "error": "[Errno 2] No such file or directory: 'C:\\\\Users\\\\netro\\\\Desktop\\\\Goldman_Bot\\\\data\\\\processed\\\\activ"
+      "grade": "A+"
     },
-    "primary_timeframe": {
+    "EURUSDm": {
       "passed": false,
-      "error": "[Errno 2] No such file or directory: 'C:\\\\Users\\\\netro\\\\Desktop\\\\Goldman_Bot\\\\data\\\\processed\\\\prima"
+      "grade": "A+"
     },
-    "htf_timeframes": {
+    "GBPUSDm": {
       "passed": false,
-      "error": "[Errno 2] No such file or directory: 'C:\\\\Users\\\\netro\\\\Desktop\\\\Goldman_Bot\\\\data\\\\processed\\\\htf_t"
+      "grade": "A+"
     }
   },
-  "duration_sec": 51,
-  "completed_at": "2026-06-15T12:47:51.066588+00:00"
+  "duration_sec": 8702,
+  "completed_at": "2026-06-15T22:46:25.662723+00:00"
 }

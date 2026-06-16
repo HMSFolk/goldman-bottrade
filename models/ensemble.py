@@ -420,7 +420,10 @@ class EnsembleTrader:
 
         # ถ้า AI มั่นใจ >= 65% และเห็นตรงกัน 2 ตัวขึ้นไป ให้เทรดเลย!
         # (ใช้ตัวแปร confidence และ n_agree โดยตรง ไม่ต้องมี signal.)
-        is_strong_signal = (confidence >= 0.45) and (n_agree >= 2) and (direction != 0)
+        # ✅ FIX: เพิ่ม VIP Pass จาก 0.45 → 0.62
+        # เหตุผล: 0.45 ต่ำเกิน (baseline random = 0.33) ทำให้เทรดสัญญาณแย่
+        # 0.62 = มั่นใจจริงๆ และ n_agree >= 2 → คุณภาพดีขึ้นมาก
+        is_strong_signal = (confidence >= 0.62) and (n_agree >= 2) and (direction != 0)
 
         if is_strong_signal:
             block_reason = ""  # เคลียร์เหตุผลการบล็อกทั้งหมด ให้ผ่านได้เลย
@@ -465,8 +468,8 @@ class EnsembleTrader:
         """
         Regime-Aware Predict — ปรับ weights + threshold ตาม market regime
 
-        แทน self.weights ปกติ ด้วย REGIME_MODEL_WEIGHTS[regime.state]
-        ใช้ REGIME_CONFIDENCE_THRESHOLDS[regime.state] แทน self.min_conf
+        แทน self.weights ปกติ ด้วย REGIME_MODEL_WEIGHTS[regime.regime]
+        ใช้ REGIME_CONFIDENCE_THRESHOLDS[regime.regime] แทน self.min_conf
 
         ตัวอย่าง:
             result = ensemble.predict_with_regime(df, regime, "XAUUSDm")
@@ -486,7 +489,7 @@ class EnsembleTrader:
         # ── 1. หา regime-specific weights ──────────────────────
         weights_used = self._get_regime_weights(regime)
         log.debug(
-            f"{symbol}: regime={regime.state} "
+            f"{symbol}: regime={regime.regime} "
             f"weights={weights_used}"
         )
 
@@ -498,7 +501,7 @@ class EnsembleTrader:
 
         # ── 4. หา regime-specific confidence threshold ──────────
         threshold = REGIME_CONFIDENCE_THRESHOLDS.get(
-            regime.state, self.min_conf
+            regime.regime, self.min_conf
         )
 
         # ── 5. ตัดสินใจ should_trade ──────────────────────────
@@ -522,12 +525,12 @@ class EnsembleTrader:
         if not should_trade:
             log.info(
                 f"{symbol}: predict_with_regime BLOCKED "
-                f"[{regime.state}] — {block_reason}"
+                f"[{regime.regime}] — {block_reason}"
             )
         else:
             log.info(
                 f"{symbol}: predict_with_regime OK "
-                f"[{regime.state}] conf={signal.confidence:.3f} "
+                f"[{regime.regime}] conf={signal.confidence:.3f} "
                 f">= threshold={threshold:.3f}"
             )
 
@@ -545,7 +548,7 @@ class EnsembleTrader:
         หา model weights ตาม market regime
 
         ดึงจาก REGIME_MODEL_WEIGHTS ที่ import มาจาก features.regime
-        ถ้า regime.state ไม่อยู่ใน map → fallback ไป self.weights (default)
+        ถ้า regime.regime ไม่อยู่ใน map → fallback ไป self.weights (default)
 
         ตัวอย่าง REGIME_MODEL_WEIGHTS:
             {
@@ -554,11 +557,11 @@ class EnsembleTrader:
                 RegimeEnum.VOLATILE : {'xgb': 0.45, 'lgbm': 0.45, 'lstm': 0.10},
             }
         """
-        regime_w = REGIME_MODEL_WEIGHTS.get(regime.state)
+        regime_w = REGIME_MODEL_WEIGHTS.get(regime.regime)
 
         if regime_w is None:
             log.debug(
-                f"regime.state={regime.state} ไม่อยู่ใน REGIME_MODEL_WEIGHTS "
+                f"regime.regime={regime.regime} ไม่อยู่ใน REGIME_MODEL_WEIGHTS "
                 f"— ใช้ default weights"
             )
             return self.weights.copy()
@@ -567,7 +570,7 @@ class EnsembleTrader:
         total = sum(regime_w.values()) + 1e-9
         normalized = {k: v / total for k, v in regime_w.items()}
 
-        log.debug(f"regime weights [{regime.state}]: {normalized}")
+        log.debug(f"regime weights [{regime.regime}]: {normalized}")
         return normalized
 
     def _weighted_combine(
@@ -637,7 +640,7 @@ class EnsembleTrader:
         if blocked_reason:
             direction = 0
 
-        regime_label = getattr(regime.state, 'name', str(regime.state))
+        regime_label = getattr(regime.regime, 'name', str(regime.regime))
 
         return EnsembleSignal(
             direction      = direction,
