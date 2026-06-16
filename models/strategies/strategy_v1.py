@@ -63,7 +63,7 @@ class TradeSetup:
             self.confidence >= CFG['signal']['min_confidence'] and
             self.sl_distance > 0 and
             self.tp_distance > 0 and
-            self.rr_ratio    >= 1.2
+            self.rr_ratio    >= 1.0
         )
 
     def __str__(self):
@@ -223,7 +223,7 @@ class StrategyV1:
         setup.rr_ratio = round(tp_dist / sl_dist, 2)
 
         # ── Step 9: RR Check ───────────────────────────────────
-        min_rr = 1.5   # ต้องได้ RR อย่างน้อย 1.5
+        min_rr = 1.0   # ต้องได้ RR อย่างน้อย 1.5
         if setup.rr_ratio < min_rr:
             setup.direction = 0
             setup.filters_failed.append(

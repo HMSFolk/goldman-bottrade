@@ -236,7 +236,7 @@ class StrategyV2:
         setup.trailing_atr = trail
 
         # ── Step 10: RR Check ─────────────────────────────────
-        min_rr = 1.5
+        min_rr = 1.0
         if setup.rr_ratio < min_rr:
             setup.direction = 0
             setup.filters_failed.append(
