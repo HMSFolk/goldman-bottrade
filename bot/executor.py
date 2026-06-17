@@ -159,12 +159,14 @@ class OrderExecutor:
         sl_distance: float,         # ระยะ SL (price units)
         tp_distance: float,         # ระยะ TP (price units)
         confidence:  float = 0.0,
+        n_agree:     int   = 0,     # ✅ NEW: กี่โมเดลเห็นตรงกัน (สำหรับ position check)
         comment:     str   = "",
     ) -> OrderResult:
         """
         ส่ง Market Order ไปยัง MT5
 
         Pipeline:
+        0. Position safety check (ตรวจก่อนว่าเพิ่ม position ได้ไหม)
         1. Risk check ทุกข้อ
         2. คำนวณ lot size
         3. คำนวณ SL/TP price
@@ -174,6 +176,25 @@ class OrderExecutor:
         7. บันทึกและ notify
         """
         t0 = time.time()
+
+        # ── Step 0: Position Safety Check ─────────────────────
+        # ✅ NEW: ตรวจก่อน risk_manager ว่าเพิ่ม position ได้ไหม
+        # รองรับ max_positions_per_symbol > 1 พร้อมเงื่อนไขความปลอดภัย
+        dir_str = "BUY" if direction == 1 else "SELL"
+        can_open, block_reason = self._can_add_position(
+            symbol=symbol, direction=dir_str,
+            confidence=confidence, n_agree=n_agree,
+        )
+        if not can_open:
+            log.warning(f"  ❌ {block_reason}")
+            log.info(f"Order blocked: ❌ {block_reason}")
+            self._notify_failure(symbol, direction, block_reason)
+            return OrderResult(
+                success   = False,
+                symbol    = symbol,
+                direction = direction,
+                error_msg = block_reason,
+            )
 
         # ── Step 1: Risk Check ────────────────────────────────
         acc    = self.client.get_account()
@@ -625,6 +646,90 @@ class OrderExecutor:
                         f"Trail SELL #{pos.ticket}: "
                         f"SL {pos.sl:.5f}→{new_sl:.5f}"
                     )
+
+    # ══════════════════════════════════════════════════════════
+    # Position Safety Check (ใหม่)
+    # ══════════════════════════════════════════════════════════
+    def _can_add_position(
+        self,
+        symbol    : str,
+        direction : str,     # "BUY" | "SELL"
+        confidence: float,
+        n_agree   : int,
+    ) -> tuple:
+        """
+        ตรวจว่าเพิ่ม position สำหรับ symbol นี้ได้ไหม
+
+        กรณีที่ 1 — ไม่มี position เลย:
+          → เปิดได้ทันที (เป็นการเปิดปกติ)
+
+        กรณีที่ 2 — มี position อยู่แล้ว (< max):
+          → เปิดได้ถ้าผ่าน 3 เงื่อนไข:
+            a. ทิศทางเดียวกัน (ห้ามเปิดสวนทางเพราะ = hedging ไร้ประโยชน์)
+            b. confidence >= add_position_min_conf (0.65)
+            c. n_agree >= add_position_min_agree (2/3 โมเดล)
+
+        กรณีที่ 3 — มี position เต็ม limit แล้ว:
+          → บล็อก (symbol_already_open)
+
+        Returns:
+            (True, "")           → เปิดได้
+            (False, "reason...")  → บล็อก พร้อมเหตุผล
+        """
+        cfg_r     = get_config().get("risk", {})
+        max_pos   = int(cfg_r.get("max_positions_per_symbol", 1))
+        same_dir  = cfg_r.get("add_same_direction_only",  True)
+        min_conf  = float(cfg_r.get("add_position_min_conf", 0.65))
+        min_agree = int(cfg_r.get("add_position_min_agree", 2))
+
+        try:
+            all_pos = mt5.positions_get(symbol=symbol) or []
+            our_pos = [p for p in all_pos if p.magic == self.magic]
+            n_exist = len(our_pos)
+        except Exception as e:
+            log.warning(f"_can_add_position: MT5 error {e} → allow (fail-open)")
+            return True, ""
+
+        # ── กรณีที่ 1: ไม่มี position → OK ───────────────────
+        if n_exist == 0:
+            return True, ""
+
+        # ── กรณีที่ 3: เต็ม limit แล้ว → block ──────────────
+        if n_exist >= max_pos:
+            return False, (
+                f"symbol_already_open: {symbol} มี position "
+                f"{n_exist} รายการ (limit={max_pos})"
+            )
+
+        # ── กรณีที่ 2: มีอยู่บางส่วน → ตรวจ 3 เงื่อนไข ──────
+        # a. ทิศทางต้องเหมือนกัน
+        if same_dir:
+            existing_dir = "BUY" if our_pos[0].type == 0 else "SELL"
+            if direction != existing_dir:
+                return False, (
+                    f"opposite_direction: มี {existing_dir} อยู่แล้ว "
+                    f"→ สัญญาณ {direction} สวนทาง (hedge ไม่คุ้ม)"
+                )
+
+        # b. Confidence ต้องสูงพอสำหรับ position ที่ 2+
+        if confidence < min_conf:
+            return False, (
+                f"add_conf_too_low: conf={confidence:.3f} < {min_conf} "
+                f"(position ที่ {n_exist+1} ต้องมั่นใจมากกว่า)"
+            )
+
+        # c. โมเดลต้องเห็นตรงกันพอ
+        if n_agree > 0 and n_agree < min_agree:
+            return False, (
+                f"add_agree_low: agree={n_agree} < {min_agree} "
+                f"(โมเดลเห็นตรงกันน้อยเกิน)"
+            )
+
+        log.info(
+            f"  ✅ Adding position #{n_exist+1} for {symbol} "
+            f"[{direction}] conf={confidence:.3f} agree={n_agree}"
+        )
+        return True, ""
 
     # ══════════════════════════════════════════════════════════
     # Record & Notify

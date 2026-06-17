@@ -5,7 +5,6 @@
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
 mt5:
   #     login / password / server มาจาก .env เช่นกัน
-
   # timeout รอ MT5 response (วินาที)
   timeout_sec: 30
 
@@ -45,12 +44,10 @@ symbols:
 # ── 3. RISK MANAGEMENT ──────────────────────────────────────
 risk:
   # % ของ balance ที่เสี่ยงต่อ 1 trade
-  # ✅ FIX: เพิ่มจาก 0.01 → 0.02 เพื่อแก้ XAU lot=0.00
   # (balance $480 × 2% = $9.6 ≥ min lot risk $9.7 สำหรับ XAU 0.01 lot)
-  risk_per_trade: 0.02
+  risk_per_trade: 0.03
 
-  # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้
-  # ✅ FIX: ลดจาก 0.10 → 0.05 (10% หลวมเกิน ควรหยุดที่ 5%)
+  # หยุดเทรดทั้งวันถ้าขาดทุนเกิน % นี้  ✅ FIX: ลดจาก 0.10 → 0.05 (10% หลวมเกิน ควรหยุดที่ 5%)
   max_daily_loss_pct: 0.05
 
   # จำนวน position สูงสุดที่เปิดพร้อมกันได้
@@ -68,6 +65,13 @@ risk:
   min_lot: 0.01
   max_lot: 0.50
 
+  # เพิ่มจาก 1 → 2 เพื่อให้สามารถเปิด 2 position ใน symbol
+  max_positions_per_symbol: 2
+
+  # ✅ NEW: เงื่อนไขสำหรับ position ที่ 2
+  add_same_direction_only : true   # ห้ามเปิดสวนทาง (BUY+SELL = hedge ไม่มีประโยชน์)
+  add_position_min_conf   : 0.65   # ต้องมั่นใจ >= 65% จึงเพิ่มได้
+  add_position_min_agree  : 2      # >= 2/3 โมเดลต้องเห็นตรงกัน
 
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
@@ -81,8 +85,6 @@ order:
     default:  90
 
   # Take Profit = SL × tp_ratio
-  # ✅ FIX: ลดจาก 1.5 → 1.0 สำหรับตลาด uncertain/ranging ปัจจุบัน
-  # เหตุผล: TP 1.5 ไม่เคยถูกแตะในตลาด choppy → ลดให้ถึงง่ายขึ้น
   tp_ratio: 1.0
 
   # TP ตาม Regime (override tp_ratio ถ้า regime detection ทำงาน)
@@ -120,16 +122,19 @@ signal:
 
   # confidence ขั้นต่ำที่จะส่ง order
   # ยิ่งสูง = trade น้อยลงแต่คุณภาพดีขึ้น
-  # ✅ FIX: เพิ่มจาก 0.45 → 0.55
   # เหตุผล: VIP Pass ที่ 0.45 ต่ำเกินไป (random baseline=0.33)
   #          0.55 = มั่นใจจริงๆ ก่อนเทรด
-  min_confidence: 0.45
+  min_confidence: 0.55   # ✅ FIX: 0.45→0.55 (random baseline=0.33)
 
   # จำนวน bar ล่าสุดที่ส่งให้โมเดล predict
   lookback_bars: 200
 
   # ป้องกันเทรดซ้ำ symbol เดิมภายใน n นาที
-  cooldown_min: 30
+  cooldown_min: 15
+
+  # ✅ NEW: เทรดแม้ HOLD เป็น argmax ถ้า directional prob >= threshold
+  # 0.0 = ปิด | 0.30 = เทรดถ้า BUY หรือ SELL prob >= 0.30
+  min_directional_prob: 0.30
 
 # ── 6. TRADING SESSION ──────────────────────────────────────
 session:
@@ -144,7 +149,7 @@ session:
   skip_weekends: true
 
   # ไม่เทรด n นาทีก่อน/หลัง ข่าวสำคัญ (ถ้าเปิด news filter)
-  news_blackout_min: 30
+  news_blackout_min: 20
 
   # วันหยุดตลาด — ไม่เทรด (อัปเดตทุกปี)
   market_holidays:
@@ -183,7 +188,6 @@ training:
   # วิธี label — triple_barrier แนะนำสำหรับ production
   label_method: "triple_barrier"
 
-  # ✅ FIX: ลบ duplicate keys (forward_bars / min_return_pct เคยซ้ำ 2 ครั้ง)
   # กี่ bar ข้างหน้าที่ใช้วัด return  (4 × M15 = 1 ชั่วโมง)
   forward_bars: 4
 
@@ -261,7 +265,7 @@ logging:
 # ── 13. News Filter ──────────────────────────────────────────
 news_filter:
   enabled: true
-  buffer_minutes: 30        # บล็อก 30 นาทีก่อน/หลังข่าว
+  buffer_minutes: 15        # บล็อก 30 นาทีก่อน/หลังข่าว
   high_impact_only: true    # เฉพาะ High impact เท่านั้น
   fail_open: true           # true = ให้เทรดต่อถ้า API ล้มเหลว
   cache_hours: 6            # refresh ทุก 6 ชั่วโมง
@@ -332,7 +336,6 @@ regime_detection:
   cache_ttl_minutes : 15       # cache 15 นาที (M15 candle)
 
 #-----21. regime-based model weights (ปรับ tune ได้)
-# ✅ FIX: เพิ่ม rule weight ใน uncertain (เคยเป็น 0.00)
 # เพื่อให้ rule_based มีส่วนร่วมแม้ตลาดไม่ชัดเจน
 regime_weights:
   trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
@@ -343,10 +346,13 @@ regime_weights:
 
 #-----22. strategy filters (สวิตช์เปิด/ปิดตัวกรองต่างๆ)
 strategy_filters:
-  use_squeeze_filter: false    # false = ปิดการบล็อกกราฟบีบตัว (เทรดบ่อยขึ้น)
-  use_htf_filter: false        # false = ปิดการเช็คไทม์เฟรม H1, H4 ขัดแย้ง
-  use_atr_low_filter: false    # false = ปิดการบล็อกวอลุ่มต่ำ
-  use_regime_filter: false     # false = ปิดการแยก regime (เทรดทุก regime)
+  use_squeeze_filter   : false  # ปิดบล็อกกราฟบีบตัว
+  use_htf_filter       : false  # ปิดเช็ค H1/H4
+  use_atr_low_filter   : false  # ปิดบล็อก volatility ต่ำ
+  use_regime_filter    : false  # ปิดแยก regime
+  use_pattern_filter   : false  # ปิด pattern_confirm
+  use_structure_filter : false  # ปิด structure_ok
+  use_final_conf_check : false  # ปิด final_conf_low (คำนวณ conf ซ้ำ)
 
 #-----23. Session Filter ────────────────────────────────────────
 session_filter:
@@ -357,14 +363,17 @@ session_filter:
 
   # ── Sessions ที่อนุญาต (default สำหรับทุก symbol) ─────────
   allowed_sessions:
-    - London                    # 07:00-16:00 UTC (ตลอดปี)
-    - New York                  # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
-
+    - London     # 07:00-16:00 UTC
+    - New York   # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
+    - Tokyo    # ลบออก: ทุก symbol ใช้ symbol_sessions override แทน
+    # - Sydney
+    
   # ── Per-symbol override ────────────────────────────────────
   symbol_sessions:
     XAUUSDm: ["London", "New York"]   # ทอง → London + NY
     EURUSDm: ["London", "New York"]   # EUR  → London + NY
     GBPUSDm: ["London", "New York"]   # GBP  → London + NY
+    #JPYUSDm: ["Tokyo", "London"]      # JPY  Tokyo + london
 
   # ── Weekend rules ──────────────────────────────────────────
   friday_close_hour : 21        # หยุดหลัง 21:00 UTC Friday

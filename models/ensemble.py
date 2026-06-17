@@ -399,6 +399,44 @@ class EnsembleTrader:
             if p.direction == soft_direction
         )
 
+        # ── 2.5 Directional Override ───────────────────────────
+        # ✅ NEW: เมื่อ soft vote = HOLD แต่มี directional signal ซ่อนอยู่
+        # ถ้า BUY หรือ SELL prob >= min_directional_prob → บังคับเทรด
+        # confidence ใช้ relative conf (BUY/(BUY+SELL)) ซึ่งสะท้อนความมั่นใจจริง
+        # เหตุผล: label imbalance ทำให้ HOLD dominant แต่ยังมี signal คุณภาพดีซ่อนอยู่
+        _min_dir = get_config()['signal'].get('min_directional_prob', 0.0)
+        if soft_direction == 0 and _min_dir > 0:
+            _buy_p  = float(raw_proba[2])
+            _sell_p = float(raw_proba[0])
+            _dir_total = _buy_p + _sell_p
+            if _dir_total > 0:
+                if _buy_p >= _min_dir and _buy_p > _sell_p:
+                    soft_direction = 1
+                    # relative confidence: แทน absolute prob (BUY/BUY+SELL)
+                    # สูงกว่า absolute → ผ่าน min_confidence check ได้ดีกว่า
+                    confidence_override = _buy_p / _dir_total
+                    n_agree = sum(1 for p in avail_preds if p.direction == 1)
+                    log.info(
+                        f"{self.symbol}: 🔀 Directional Override → BUY "
+                        f"(buy={_buy_p:.3f} >= {_min_dir} | "
+                        f"rel_conf={confidence_override:.3f})"
+                    )
+                elif _sell_p >= _min_dir and _sell_p > _buy_p:
+                    soft_direction = -1
+                    confidence_override = _sell_p / _dir_total
+                    n_agree = sum(1 for p in avail_preds if p.direction == -1)
+                    log.info(
+                        f"{self.symbol}: 🔀 Directional Override → SELL "
+                        f"(sell={_sell_p:.3f} >= {_min_dir} | "
+                        f"rel_conf={confidence_override:.3f})"
+                    )
+                else:
+                    confidence_override = None
+            else:
+                confidence_override = None
+        else:
+            confidence_override = None
+
         # ── 3. Hard Vote Tiebreaker ────────────────────────────
         if method == "auto" and n_agree < require_agree:
             hard_dir, hard_score = self._hard_vote(avail_preds)
@@ -407,7 +445,11 @@ class EnsembleTrader:
             used_method= "hard_voting"
         else:
             direction  = soft_direction
-            confidence = float(raw_proba[raw_proba.argmax()])
+            # ถ้ามี directional override ใช้ relative confidence แทน argmax
+            if confidence_override is not None:
+                confidence = confidence_override
+            else:
+                confidence = float(raw_proba[raw_proba.argmax()])
             used_method= "soft_voting"
 
         # ── 4. Confidence Boost ────────────────────────────────
@@ -731,9 +773,11 @@ class EnsembleTrader:
         if n_agree == 0:
             return "ไม่มีโมเดลเห็นด้วยกับ ensemble"
 
-        # HOLD probability สูงกว่า 70%
-        if float(proba[1]) > 0.70:
-            return f"HOLD probability สูง ({proba[1]:.2f})"
+        # HOLD probability สูงมากผิดปกติ (block เฉพาะมั่นใจ HOLD มากๆ)
+        # ✅ FIX: เพิ่มจาก 0.70 → 0.85  เหตุผล: label imbalance ทำให้
+        #         HOLD prob ~0.70-0.85 บ่อย ถ้า block ที่ 0.70 ทำให้ trade น้อยเกิน
+        if float(proba[1]) > 0.85:
+            return f"HOLD probability สูงมาก ({proba[1]:.2f})"
 
         return ""
 
