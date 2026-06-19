@@ -67,7 +67,7 @@ class TradeSetup:
             self.direction  != 0 and
             self.confidence >= CFG['signal']['min_confidence'] and
             self.sl_distance > 0 and
-            self.rr_ratio    >= 1.0
+            self.rr_ratio    >= 0.5
         )
 
     def __str__(self):

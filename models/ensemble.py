@@ -410,21 +410,29 @@ class EnsembleTrader:
             _sell_p = float(raw_proba[0])
             _dir_total = _buy_p + _sell_p
             if _dir_total > 0:
-                if _buy_p >= _min_dir and _buy_p > _sell_p:
+                # ✅ FIX: ตรวจจำนวนโมเดลที่เห็นด้วยก่อน override
+                # agree=1/3 อันตราย → ต้องการ >= 2/3 โมเดลเห็นตรงกัน
+                _min_agree_override = get_config()['signal'].get(
+                    'min_agree_for_directional_override', 2
+                )
+                _n_buy  = sum(1 for p in avail_preds if p.direction == 1)
+                _n_sell = sum(1 for p in avail_preds if p.direction == -1)
+
+                if _buy_p >= _min_dir and _buy_p > _sell_p and _n_buy >= _min_agree_override:
                     soft_direction = 1
                     # relative confidence: แทน absolute prob (BUY/BUY+SELL)
                     # สูงกว่า absolute → ผ่าน min_confidence check ได้ดีกว่า
                     confidence_override = _buy_p / _dir_total
-                    n_agree = sum(1 for p in avail_preds if p.direction == 1)
+                    n_agree = _n_buy
                     log.info(
                         f"{self.symbol}: 🔀 Directional Override → BUY "
                         f"(buy={_buy_p:.3f} >= {_min_dir} | "
                         f"rel_conf={confidence_override:.3f})"
                     )
-                elif _sell_p >= _min_dir and _sell_p > _buy_p:
+                elif _sell_p >= _min_dir and _sell_p > _buy_p and _n_sell >= _min_agree_override:
                     soft_direction = -1
                     confidence_override = _sell_p / _dir_total
-                    n_agree = sum(1 for p in avail_preds if p.direction == -1)
+                    n_agree = _n_sell
                     log.info(
                         f"{self.symbol}: 🔀 Directional Override → SELL "
                         f"(sell={_sell_p:.3f} >= {_min_dir} | "

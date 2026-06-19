@@ -275,7 +275,7 @@ class NewsFilter:
             return [e for e in events if e is not None]
 
         except Exception as e:
-            log.debug(f"Finnhub fetch error: {e}")
+            log.error(f"Finnhub fetch error: {e}")
             return []
 
     def _fetch_forexfactory(self) -> list:

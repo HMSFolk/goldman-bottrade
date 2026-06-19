@@ -4,7 +4,7 @@ Telegram Command Bot — สั่งงาน Trading Bot จากมือถ
 ════════════════════════════════════════════════════════════
 Commands:
   /status      → ดูสถานะ account + open positions
-  /closeall    → ปิดทุก position ทันที
+  /closeall    → ปิดทุก position ทันที (ต้องยืนยัน)
   /pause       → หยุดเทรดชั่วคราว (บอทยังรันอยู่)
   /resume      → เปิดเทรดต่อ
   /pnl         → P&L วันนี้ + สัปดาห์นี้ + เดือนนี้
@@ -12,6 +12,17 @@ Commands:
   /trades N    → ดู N trades ล่าสุด
   /balance     → balance + equity + margin
   /risk        → risk settings ปัจจุบัน
+  /dd          → drawdown ปัจจุบัน
+  /gold        → ราคาทอง real-time
+  /spread      → spread ทุก symbol
+  /session     → session ตลาดที่เปิดอยู่
+  /ping        → ตรวจ bot alive + latency
+  /uptime      → bot รันมานานแค่ไหน
+  /reset_risk  → Reset ทุกอย่าง: CB counters + ปลดล็อก pause
+  /reset_daily → Reset เฉพาะ daily loss counter
+  /reset_cb    → Reset เฉพาะ consecutive loss counter
+  /quote       → trading wisdom
+  /flip        → AI signal 🎲
   /help        → รายการคำสั่งทั้งหมด
 
 Security:
@@ -26,19 +37,17 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-# ✅ FIX CRITICAL-1: setup_logging ก่อน import อื่น
+# setup_logging ก่อน import อื่น
 from bot.setup_logging import setup_logging
 setup_logging()
 
-import logging
 import json
-import sqlite3
-import asyncio
+import logging
 import random
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+import sqlite3
+from datetime import datetime, timedelta, timezone
 
-from telegram import Update, BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -47,41 +56,40 @@ from telegram.ext import (
     filters,
 )
 
-# ✅ FIX CRITICAL-2: ใช้ get_config() แทน yaml.safe_load + load_dotenv
-#    get_config() merge .env ให้แล้ว — credentials อยู่ใน CFG
+# ใช้ get_config() — merge .env ให้แล้ว credentials อยู่ใน CFG
 from config import get_config
 CFG = get_config()
 
 log = logging.getLogger("dashboard.telegram_bot")
 
-# ── Bot start time (for /uptime) ─────────────────────────────
+# ── Bot start time (for /uptime) ──────────────────────────────
 _BOT_START_TIME = datetime.now(timezone.utc)
 
-# ── Trading wisdom quotes (for /quote) ───────────────────────
+# ── Trading wisdom quotes (for /quote) ────────────────────────
 _QUOTES = [
-    ("The trend is your friend.",                                           "Jesse Livermore"),
-    ("Cut your losses, let your profits run.",                              "David Ricardo"),
-    ("Risk management is the only thing that matters.",                     "Paul Tudor Jones"),
-    ("The market can stay irrational longer than you can stay solvent.",    "Keynes"),
-    ("Plan the trade, trade the plan.",                                     "Wall St. wisdom"),
+    ("The trend is your friend.",                                                            "Jesse Livermore"),
+    ("Cut your losses, let your profits run.",                                               "David Ricardo"),
+    ("Risk management is the only thing that matters.",                                      "Paul Tudor Jones"),
+    ("The market can stay irrational longer than you can stay solvent.",                     "Keynes"),
+    ("Plan the trade, trade the plan.",                                                      "Wall St. wisdom"),
     ("In the short run, the market is a voting machine. In the long run, a weighing machine.", "Benjamin Graham"),
-    ("The goal of a successful trader is to make the best trades, not to be right.", "Mark Douglas"),
-    ("Markets are never wrong — opinions often are.",                       "Jesse Livermore"),
-    ("Rule No.1: Never lose money. Rule No.2: Never forget Rule No.1.",    "Warren Buffett"),
+    ("The goal of a successful trader is to make the best trades, not to be right.",         "Mark Douglas"),
+    ("Markets are never wrong — opinions often are.",                                        "Jesse Livermore"),
+    ("Rule No.1: Never lose money. Rule No.2: Never forget Rule No.1.",                     "Warren Buffett"),
     ("Amateurs think about how much they can make. Pros think about how much they can lose.", "Larry Hite"),
-    ("Trade what you see, not what you think.",                             "Unknown"),
-    ("Be fearful when others are greedy, and greedy when others are fearful.", "Warren Buffett"),
-    ("Patience is the most important skill in trading.",                    "Unknown"),
-    ("The biggest risk is not taking any risk.",                            "Mark Zuckerberg"),
-    ("Every battle is won before it is fought.",                            "Sun Tzu"),
+    ("Trade what you see, not what you think.",                                              "Unknown"),
+    ("Be fearful when others are greedy, and greedy when others are fearful.",               "Warren Buffett"),
+    ("Patience is the most important skill in trading.",                                     "Unknown"),
+    ("The biggest risk is not taking any risk.",                                             "Mark Zuckerberg"),
+    ("Every battle is won before it is fought.",                                             "Sun Tzu"),
 ]
 
-# ✅ FIX CRITICAL-3: absolute paths จาก project root
+# Absolute paths จาก project root
 DB_PATH      = _ROOT / CFG['paths']['db']
 FLAGS_DIR    = _ROOT / CFG['paths']['flags']
 ACCOUNT_JSON = _ROOT / CFG['paths']['logs'] / "account.json"
 
-# ✅ FIX HIGH: อ่าน TOKEN/CHAT_ID จาก CFG (merge .env แล้ว) ไม่ใช่ os.getenv โดยตรง
+# อ่าน TOKEN/CHAT_ID จาก CFG (merge .env แล้ว)
 TOKEN   = CFG.get('notifications', {}).get('telegram_token',   '')
 CHAT_ID = CFG.get('notifications', {}).get('telegram_chat_id', '')
 
@@ -94,13 +102,13 @@ def _authorized(update: Update) -> bool:
     ตรวจว่า message มาจาก chat_id ที่อนุญาตเท่านั้น
     ถ้าไม่ใช่ → ไม่ทำอะไร + log warning
     """
-    chat_id = str(update.effective_chat.id)
+    chat_id  = str(update.effective_chat.id)
+    username = update.effective_user.username if update.effective_user else "unknown"
 
     if chat_id != str(CHAT_ID):
         log.warning(
             f"Unauthorized access attempt: "
-            f"chat_id={chat_id} "
-            f"user={update.effective_user.username}"
+            f"chat_id={chat_id} user={username}"
         )
         return False
     return True
@@ -112,7 +120,7 @@ def _authorized(update: Update) -> bool:
 def _load_account() -> dict:
     """โหลด account snapshot ล่าสุด"""
     try:
-        return json.loads(ACCOUNT_JSON.read_text())
+        return json.loads(ACCOUNT_JSON.read_text(encoding="utf-8"))
     except Exception:
         return {}
 
@@ -122,19 +130,18 @@ def _load_trades(days_back: int = 1) -> list:
     if not DB_PATH.exists():
         return []
 
-    conn  = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows  = conn.execute("""
-        SELECT symbol, direction, volume,
-               open_price, close_price,
-               profit, close_time, ticket
-        FROM   trades
-        WHERE  close_time IS NOT NULL
-          AND  close_time >= datetime('now', ?)
-        ORDER  BY close_time DESC
-        LIMIT  50
-    """, (f"-{days_back} days",)).fetchall()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT symbol, direction, volume,
+                   open_price, close_price,
+                   profit, close_time, ticket
+            FROM   trades
+            WHERE  close_time IS NOT NULL
+              AND  close_time >= datetime('now', ?)
+            ORDER  BY close_time DESC
+            LIMIT  50
+        """, (f"-{days_back} days",)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -142,22 +149,21 @@ def _get_open_positions() -> list:
     """ดึง open positions จาก MT5"""
     try:
         import MetaTrader5 as mt5
-        # ⚠️ เติม 2 บรรทัดนี้เข้าไปเพื่อให้แน่ใจว่าเชื่อมต่อ MT5 สำเร็จเสมอ
         if not mt5.initialize():
             log.error("Telegram Bot: MT5 initialize failed")
             return []
-            
+
         positions = mt5.positions_get() or []
         return [
             {
-                'ticket' : p.ticket,
-                'symbol' : p.symbol,
-                'type'   : 'BUY' if p.type == 0 else 'SELL',
-                'volume' : p.volume,
-                'price'  : p.price_open,
-                'profit' : p.profit,
-                'sl'     : p.sl,
-                'tp'     : p.tp,
+                'ticket': p.ticket,
+                'symbol': p.symbol,
+                'type'  : 'BUY' if p.type == 0 else 'SELL',
+                'volume': p.volume,
+                'price' : p.price_open,
+                'profit': p.profit,
+                'sl'    : p.sl,
+                'tp'    : p.tp,
             }
             for p in positions
             if p.magic == CFG['order']['magic_number']
@@ -174,7 +180,7 @@ def _is_paused() -> bool:
 def _set_pause(paused: bool):
     pause_file = FLAGS_DIR / "paused"
     if paused:
-        FLAGS_DIR.mkdir(exist_ok=True)
+        FLAGS_DIR.mkdir(parents=True, exist_ok=True)
         pause_file.touch()
     else:
         if pause_file.exists():
@@ -187,24 +193,28 @@ def _now_str() -> str:
 
 def _pnl_summary(days_back: int) -> dict:
     """คำนวณ P&L summary จาก DB"""
+    empty = {'trades': 0, 'pnl': 0, 'wins': 0, 'losses': 0}
     if not DB_PATH.exists():
-        return {'trades': 0, 'pnl': 0, 'wins': 0, 'losses': 0}
+        return empty
 
-    conn = sqlite3.connect(DB_PATH)
-    row  = conn.execute("""
-        SELECT
-            COUNT(*)                                        AS trades,
-            COALESCE(SUM(profit), 0)                        AS pnl,
-            SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END)    AS wins,
-            SUM(CASE WHEN profit <= 0 THEN 1 ELSE 0 END)   AS losses
-        FROM trades
-        WHERE  close_time IS NOT NULL
-          AND  close_time >= datetime('now', ?)
-    """, (f"-{days_back} days",)).fetchone()
-    conn.close()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            row = conn.execute("""
+                SELECT
+                    COUNT(*)                                        AS trades,
+                    COALESCE(SUM(profit), 0)                        AS pnl,
+                    SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END)    AS wins,
+                    SUM(CASE WHEN profit <= 0 THEN 1 ELSE 0 END)   AS losses
+                FROM trades
+                WHERE  close_time IS NOT NULL
+                  AND  close_time >= datetime('now', ?)
+            """, (f"-{days_back} days",)).fetchone()
+    except Exception as e:
+        log.error(f"pnl_summary error: {e}")
+        return empty
 
     if row is None:
-        return {'trades': 0, 'pnl': 0, 'wins': 0, 'losses': 0}
+        return empty
 
     return {
         'trades' : row[0] or 0,
@@ -216,12 +226,12 @@ def _pnl_summary(days_back: int) -> dict:
 
 def _current_sessions() -> list:
     """ตรวจว่าตอนนี้ session ไหนเปิดอยู่ (UTC)"""
-    hour = datetime.now(timezone.utc).hour
+    hour   = datetime.now(timezone.utc).hour
     active = []
-    if hour >= 21 or hour < 6:   active.append("🦘 Sydney")
-    if 0  <= hour < 9:            active.append("🗼 Tokyo")
-    if 7  <= hour < 16:           active.append("🎡 London")
-    if 12 <= hour < 21:           active.append("🗽 New York")
+    if hour >= 21 or hour < 6:  active.append("🦘 Sydney")
+    if 0  <= hour < 9:          active.append("🗼 Tokyo")
+    if 7  <= hour < 16:         active.append("🎡 London")
+    if 12 <= hour < 21:         active.append("🗽 New York")
     return active if active else ["😴 Off hours"]
 
 
@@ -229,15 +239,9 @@ def _current_sessions() -> list:
 # Command Handlers
 # ══════════════════════════════════════════════════════════════
 
-# ── /status ──────────────────────────────────────────────────
-async def cmd_status(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    """
-    แสดงสถานะรวมของบอท
-    account + open positions + pause status + today P&L
-    """
+# ── /status ───────────────────────────────────────────────────
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """แสดงสถานะรวม: account + open positions + pause status + today P&L"""
     if not _authorized(update):
         return
 
@@ -246,18 +250,16 @@ async def cmd_status(
     paused    = _is_paused()
     today     = _pnl_summary(days_back=1)
 
-    # Status icon
     status_icon = "⏸ PAUSED" if paused else "▶️ RUNNING"
-    balance     = acc.get('balance',    0)
-    equity      = acc.get('equity',     0)
-    profit      = acc.get('profit',     0)
-    free_margin = acc.get('free_margin',0)
+    balance     = acc.get('balance',     0)
+    equity      = acc.get('equity',      0)
+    profit      = acc.get('profit',      0)
+    free_margin = acc.get('free_margin', 0)
 
-    # Open positions summary
     if positions:
         pos_lines = []
         for p in positions:
-            icon = "↑" if p['type'] == "BUY" else "↓"
+            icon      = "↑" if p['type'] == "BUY" else "↓"
             pnl_color = "🟢" if p['profit'] >= 0 else "🔴"
             pos_lines.append(
                 f"  {icon} `{p['symbol']}` "
@@ -287,71 +289,50 @@ async def cmd_status(
         f"━━━━━━━━━━━━━━━━━━\n"
         f"⏰ `{_now_str()}`"
     )
-
-    await update.message.reply_text(
-        msg, parse_mode="Markdown"
-    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 # ── /closeall ─────────────────────────────────────────────────
-async def cmd_closeall(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    """
-    ปิด position ทั้งหมดทันที
-    ต้องยืนยันก่อน (2 ขั้นตอน)
-    """
+async def cmd_closeall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ปิด position ทั้งหมด (ต้องยืนยันด้วย /confirmclose ภายใน 30 วิ)"""
     if not _authorized(update):
         return
 
     positions = _get_open_positions()
-
     if not positions:
-        await update.message.reply_text(
-            "ℹ️ ไม่มี open position ที่จะปิด"
-        )
+        await update.message.reply_text("ℹ️ ไม่มี open position ที่จะปิด")
         return
 
-    # แสดงรายการก่อนยืนยัน
     total_profit = sum(p['profit'] for p in positions)
-    lines        = [
+    lines = [
         f"  {'↑' if p['type']=='BUY' else '↓'} "
         f"`{p['symbol']}` lot={p['volume']:.2f} "
         f"${p['profit']:+.2f}"
         for p in positions
     ]
 
-    confirm_msg = (
-        f"⚠️ *Confirm Close All*\n\n"
-        f"จะปิด *{len(positions)} positions*:\n"
-        f"{chr(10).join(lines)}\n\n"
-        f"Floating P&L: `${total_profit:+.2f}`\n\n"
-        f"ยืนยันด้วยคำสั่ง `/confirmclose`"
-    )
-
-    # บันทึก state รอยืนยัน
     context.user_data['pending_closeall'] = True
     context.user_data['pending_timeout']  = (
         datetime.now(timezone.utc) + timedelta(seconds=30)
     )
 
     await update.message.reply_text(
-        confirm_msg, parse_mode="Markdown"
+        f"⚠️ *Confirm Close All*\n\n"
+        f"จะปิด *{len(positions)} positions*:\n"
+        f"{chr(10).join(lines)}\n\n"
+        f"Floating P&L: `${total_profit:+.2f}`\n\n"
+        f"ยืนยันด้วยคำสั่ง `/confirmclose`",
+        parse_mode="Markdown",
     )
 
 
-async def cmd_confirmclose(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_confirmclose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ยืนยันการปิด position ทั้งหมด"""
     if not _authorized(update):
         return
 
-    # ตรวจ pending state
-    pending  = context.user_data.get('pending_closeall', False)
-    timeout  = context.user_data.get('pending_timeout')
+    pending = context.user_data.get('pending_closeall', False)
+    timeout = context.user_data.get('pending_timeout')
 
     if not pending:
         await update.message.reply_text(
@@ -368,13 +349,12 @@ async def cmd_confirmclose(
         )
         return
 
-    # ดำเนินการปิด
     await update.message.reply_text("🔄 กำลังปิด positions...")
 
     try:
-        from bot.mt5_client  import MT5Client
+        from bot.executor     import OrderExecutor
+        from bot.mt5_client   import MT5Client
         from bot.risk_manager import RiskManager
-        from bot.executor    import OrderExecutor
 
         client   = MT5Client()
         risk     = RiskManager()
@@ -391,7 +371,6 @@ async def cmd_confirmclose(
             f"Total P&L: `${total_pnl:+.2f}`\n"
             f"⏰ `{_now_str()}`"
         )
-
         context.user_data['pending_closeall'] = False
 
     except Exception as e:
@@ -401,16 +380,81 @@ async def cmd_confirmclose(
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+# ── /reset_risk ───────────────────────────────────────────────
+async def cmd_reset_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🔄 Reset ทุกอย่าง: CB + consecutive + daily — ส่ง flag ให้ main loop"""
+    if not _authorized(update):
+        return
+
+    try:
+        FLAGS_DIR.mkdir(parents=True, exist_ok=True)
+        (FLAGS_DIR / "reset_all.flag").touch()
+        await update.message.reply_text(
+            f"🔄 *Full Reset Requested*\n\n"
+            f"✅ ส่งคำสั่งให้ main loop แล้ว\n"
+            f"Bot จะ reset + resume ใน tick ถัดไป\n\n"
+            f"สิ่งที่จะถูก reset:\n"
+            f"  • Circuit breaker trigger\n"
+            f"  • Consecutive losses counter\n"
+            f"  • Daily tracking balance\n\n"
+            f"⏰ `{_now_str()}`",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
+
+
+# ── /reset_daily ──────────────────────────────────────────────
+async def cmd_reset_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """📅 Reset เฉพาะ daily loss counter — ส่ง flag ให้ main loop"""
+    if not _authorized(update):
+        return
+
+    try:
+        FLAGS_DIR.mkdir(parents=True, exist_ok=True)
+        (FLAGS_DIR / "reset_daily.flag").touch()
+        await update.message.reply_text(
+            f"📅 *Daily Reset Requested*\n\n"
+            f"✅ ส่งคำสั่งให้ main loop แล้ว\n"
+            f"Bot จะ reset daily counter ใน tick ถัดไป\n\n"
+            f"สิ่งที่จะถูก reset:\n"
+            f"  • Circuit breaker trigger\n"
+            f"  • Daily tracking balance\n\n"
+            f"⚠️ Consecutive losses และ Weekly limit ยังคงอยู่\n"
+            f"⏰ `{_now_str()}`",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
+
+
+# ── /reset_cb ─────────────────────────────────────────────────
+async def cmd_reset_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🔢 Reset เฉพาะ consecutive loss counter — ส่ง flag ให้ main loop"""
+    if not _authorized(update):
+        return
+
+    try:
+        FLAGS_DIR.mkdir(parents=True, exist_ok=True)
+        (FLAGS_DIR / "reset_cb.flag").touch()
+        await update.message.reply_text(
+            f"🔢 *Consecutive Reset Requested*\n\n"
+            f"✅ ส่งคำสั่งให้ main loop แล้ว\n"
+            f"Bot จะ reset consecutive losses ใน tick ถัดไป\n\n"
+            f"สิ่งที่จะถูก reset:\n"
+            f"  • Circuit breaker trigger\n"
+            f"  • Consecutive losses counter\n\n"
+            f"⚠️ Daily loss ยังคำนวณจาก DB อยู่\n"
+            f"⏰ `{_now_str()}`",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
+
+
 # ── /pause ────────────────────────────────────────────────────
-async def cmd_pause(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    """
-    หยุดเทรดชั่วคราว
-    บอทยังรันอยู่แต่ไม่เปิด order ใหม่
-    positions ที่เปิดอยู่ยังคงอยู่
-    """
+async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """หยุดเทรดชั่วคราว — บอทยังรันอยู่แต่ไม่เปิด order ใหม่"""
     if not _authorized(update):
         return
 
@@ -422,12 +466,10 @@ async def cmd_pause(
         return
 
     _set_pause(True)
-
     positions = _get_open_positions()
     open_info = (
         f"⚠️ ยังมี {len(positions)} open positions อยู่"
-        if positions else
-        "ไม่มี open positions"
+        if positions else "ไม่มี open positions"
     )
 
     await update.message.reply_text(
@@ -438,23 +480,17 @@ async def cmd_pause(
         f"⏰ `{_now_str()}`",
         parse_mode="Markdown",
     )
-
     log.info("Bot paused via Telegram")
 
 
 # ── /resume ───────────────────────────────────────────────────
-async def cmd_resume(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """เปิดเทรดต่อหลัง pause"""
     if not _authorized(update):
         return
 
     if not _is_paused():
-        await update.message.reply_text(
-            "ℹ️ Bot ทำงานอยู่แล้ว ไม่ได้ถูก pause"
-        )
+        await update.message.reply_text("ℹ️ Bot ทำงานอยู่แล้ว ไม่ได้ถูก pause")
         return
 
     _set_pause(False)
@@ -463,38 +499,32 @@ async def cmd_resume(
     await update.message.reply_text(
         f"▶️ *Bot Resumed*\n\n"
         f"บอทกลับมาเทรดแล้ว\n"
-        f"Balance: `${acc.get('balance',0):,.2f}`\n"
+        f"Balance: `${acc.get('balance', 0):,.2f}`\n"
         f"⏰ `{_now_str()}`",
         parse_mode="Markdown",
     )
-
     log.info("Bot resumed via Telegram")
 
 
 # ── /pnl ──────────────────────────────────────────────────────
-async def cmd_pnl(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """แสดง P&L หลายช่วงเวลา"""
     if not _authorized(update):
         return
 
-    today  = _pnl_summary(days_back=1)
-    week   = _pnl_summary(days_back=7)
-    month  = _pnl_summary(days_back=30)
-    total  = _pnl_summary(days_back=3650)
+    today = _pnl_summary(days_back=1)
+    week  = _pnl_summary(days_back=7)
+    month = _pnl_summary(days_back=30)
+    total = _pnl_summary(days_back=3650)
 
     def _wr(d: dict) -> str:
         t = d['trades']
-        if t == 0:
-            return "N/A"
-        return f"{d['wins']/t*100:.0f}%"
+        return "N/A" if t == 0 else f"{d['wins']/t*100:.0f}%"
 
     def _icon(pnl: float) -> str:
         return "📈" if pnl >= 0 else "📉"
 
-    msg = (
+    await update.message.reply_text(
         f"💰 *P&L Summary*\n\n"
         f"*วันนี้* {_icon(today['pnl'])}\n"
         f"  P&L:    `${today['pnl']:+.2f}`\n"
@@ -508,32 +538,23 @@ async def cmd_pnl(
         f"*ทั้งหมด* {_icon(total['pnl'])}\n"
         f"  P&L:    `${total['pnl']:+.2f}`\n"
         f"  Trades: `{total['trades']}` WR={_wr(total)}\n\n"
-        f"⏰ `{_now_str()}`"
-    )
-
-    await update.message.reply_text(
-        msg, parse_mode="Markdown"
+        f"⏰ `{_now_str()}`",
+        parse_mode="Markdown",
     )
 
 
 # ── /positions ────────────────────────────────────────────────
-async def cmd_positions(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """รายละเอียด open positions ทุกตัว"""
     if not _authorized(update):
         return
 
     positions = _get_open_positions()
-
     if not positions:
-        await update.message.reply_text(
-            "ℹ️ ไม่มี open positions"
-        )
+        await update.message.reply_text("ℹ️ ไม่มี open positions")
         return
 
-    lines = ["📋 *Open Positions*\n"]
+    lines        = ["📋 *Open Positions*\n"]
     total_profit = 0
 
     for p in positions:
@@ -541,8 +562,7 @@ async def cmd_positions(
         icon   = "🟢" if p['profit'] >= 0 else "🔴"
         total_profit += p['profit']
         lines.append(
-            f"{icon} {arrow} *{p['symbol']}* "
-            f"#{p['ticket']}\n"
+            f"{icon} {arrow} *{p['symbol']}* #{p['ticket']}\n"
             f"  Lot:    `{p['volume']:.2f}`\n"
             f"  Entry:  `{p['price']:.5f}`\n"
             f"  SL:     `{p['sl']:.5f}`\n"
@@ -552,49 +572,37 @@ async def cmd_positions(
 
     lines.append(
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"Total Floating: "
-        f"`${total_profit:+.2f}`\n"
+        f"Total Floating: `${total_profit:+.2f}`\n"
         f"⏰ `{_now_str()}`"
     )
-
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode="Markdown"
-    )
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 # ── /trades ───────────────────────────────────────────────────
-async def cmd_trades(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ดู trades ล่าสุด
     /trades    → 5 trades ล่าสุด
-    /trades 10 → 10 trades ล่าสุด
+    /trades 10 → 10 trades ล่าสุด (max 20)
     """
     if not _authorized(update):
         return
 
-    # Parse จำนวน trades ที่ต้องการ
     try:
         n = int(context.args[0]) if context.args else 5
-        n = min(max(n, 1), 20)   # จำกัด 1-20
+        n = min(max(n, 1), 20)
     except (ValueError, IndexError):
         n = 5
 
     trades = _load_trades(days_back=30)[:n]
-
     if not trades:
-        await update.message.reply_text(
-            "ℹ️ ยังไม่มี trade ใน 30 วันล่าสุด"
-        )
+        await update.message.reply_text("ℹ️ ยังไม่มี trade ใน 30 วันล่าสุด")
         return
 
     lines = [f"📋 *{n} Trades ล่าสุด*\n"]
-
     for t in trades:
-        icon   = "💚" if (t['profit'] or 0) >= 0 else "🔴"
-        arrow  = "↑" if t['direction'] == "BUY" else "↓"
+        icon     = "💚" if (t['profit'] or 0) >= 0 else "🔴"
+        arrow    = "↑" if t['direction'] == "BUY" else "↓"
         time_str = t['close_time'][:16] if t['close_time'] else "?"
         lines.append(
             f"{icon} {arrow} `{t['symbol']}` "
@@ -604,27 +612,17 @@ async def cmd_trades(
         )
 
     total = sum(t['profit'] or 0 for t in trades)
-    lines.append(
-        f"\nTotal: `${total:+.2f}`\n"
-        f"⏰ `{_now_str()}`"
-    )
-
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode="Markdown"
-    )
+    lines.append(f"\nTotal: `${total:+.2f}`\n⏰ `{_now_str()}`")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 # ── /balance ──────────────────────────────────────────────────
-async def cmd_balance(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Balance, equity, margin details"""
     if not _authorized(update):
         return
 
-    acc = _load_account()
-
+    acc          = _load_account()
     balance      = acc.get('balance',      0)
     equity       = acc.get('equity',       0)
     margin       = acc.get('margin',       0)
@@ -642,12 +640,11 @@ async def cmd_balance(
         f"💰 *Balance Details*\n\n"
         f"Balance:      `${balance:,.2f}`\n"
         f"Equity:       `${equity:,.2f}`\n"
-        f"Floating P&L: `${acc.get('profit',0):+.2f}`\n"
+        f"Floating P&L: `${acc.get('profit', 0):+.2f}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Margin Used:  `${margin:,.2f}`\n"
         f"Free Margin:  `${free_margin:,.2f}`\n"
-        f"{margin_icon} Margin Level: "
-        f"`{margin_level:.0f}%`\n"
+        f"{margin_icon} Margin Level: `{margin_level:.0f}%`\n"
         f"Leverage:     `1:{leverage}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"⏰ `{_now_str()}`",
@@ -656,91 +653,84 @@ async def cmd_balance(
 
 
 # ── /risk ─────────────────────────────────────────────────────
-async def cmd_risk(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Risk settings ปัจจุบัน"""
     if not _authorized(update):
         return
 
-    r = CFG['risk']
-    s = CFG['signal']
-
+    r           = CFG['risk']
+    s           = CFG['signal']
     paused_text = "⏸ PAUSED" if _is_paused() else "▶️ ACTIVE"
 
     await update.message.reply_text(
         f"⚙️ *Risk Settings*\n\n"
         f"Bot Status:     `{paused_text}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"Risk/Trade:     "
-        f"`{r['risk_per_trade']:.1%}`\n"
-        f"Max Daily Loss: "
-        f"`{r['max_daily_loss_pct']:.1%}`\n"
-        f"Max Trades:     "
-        f"`{r['max_open_trades']}`\n"
-        f"Min Confidence: "
-        f"`{s['min_confidence']:.0%}`\n"
+        f"Risk/Trade:     `{r['risk_per_trade']:.1%}`\n"
+        f"Max Daily Loss: `{r['max_daily_loss_pct']:.1%}`\n"
+        f"Max Trades:     `{r['max_open_trades']}`\n"
+        f"Min Confidence: `{s['min_confidence']:.0%}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"SL Points:\n"
-        f"  XAUUSDm: "
-        f"`{r['max_spread_points'].get('XAUUSDm',30)}`\n"
-        f"  EURUSDm: "
-        f"`{r['max_spread_points'].get('EURUSDm',15)}`\n"
+        f"  XAUUSDm: `{r['max_spread_points'].get('XAUUSDm', 30)}`\n"
+        f"  EURUSDm: `{r['max_spread_points'].get('EURUSDm', 15)}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"Strategy: `v{CFG.get('model',{}).get('active','?')}`\n"
+        f"Strategy: `v{CFG.get('model', {}).get('active', '?')}`\n"
         f"⏰ `{_now_str()}`",
         parse_mode="Markdown",
     )
 
 
-# ── /help ─────────────────────────────────────────────────────
-async def cmd_help(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    """รายการคำสั่งทั้งหมด"""
+# ── /dd ───────────────────────────────────────────────────────
+async def cmd_dd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Drawdown ปัจจุบัน + เทียบ daily limit"""
     if not _authorized(update):
         return
 
+    acc     = _load_account()
+    balance = acc.get('balance', 0)
+    equity  = acc.get('equity',  0)
+
+    if balance <= 0:
+        await update.message.reply_text("❌ ไม่พบข้อมูล account (bot อาจยังไม่ได้รัน)")
+        return
+
+    floating_dd = max(0.0, balance - equity)
+    dd_pct      = (floating_dd / balance * 100) if balance > 0 else 0
+    today_pnl   = _pnl_summary(days_back=1)['pnl']
+    limit_pct   = CFG.get('risk', {}).get('max_daily_loss_pct', 0.05) * 100
+
+    dd_icon = (
+        "🔴" if dd_pct >= limit_pct
+        else "🟡" if dd_pct >= limit_pct / 2
+        else "🟢"
+    )
+    status = "⚠️ WARNING — ใกล้ถึง limit!" if dd_pct >= limit_pct * 0.8 else "✅ OK"
+
     await update.message.reply_text(
-        f"🤖 *AURUM BOT Commands*\n\n"
-        f"*ดูข้อมูล:*\n"
-        f"  /status    → สถานะรวมทั้งหมด\n"
-        f"  /balance   → balance + margin\n"
-        f"  /positions → open positions\n"
-        f"  /trades N  → N trades ล่าสุด\n"
-        f"  /pnl       → P&L วัน/สัปดาห์/เดือน\n"
-        f"  /risk      → risk settings\n"
-        f"  /dd        → drawdown ปัจจุบัน\n\n"
-        f"*ตลาด:*\n"
-        f"  /gold      → ราคาทอง real-time\n"
-        f"  /spread    → spread ทุก symbol\n"
-        f"  /session   → session ที่เปิดอยู่\n\n"
-        f"*ควบคุม:*\n"
-        f"  /pause     → หยุดเทรดชั่วคราว\n"
-        f"  /resume    → เปิดเทรดต่อ\n"
-        f"  /closeall  → ปิดทุก position\n\n"
-        f"*เบ็ดเตล็ด:*\n"
-        f"  /ping      → ตรวจ bot alive + latency\n"
-        f"  /uptime    → bot รันมานานแค่ไหน\n"
-        f"  /quote     → trading wisdom\n"
-        f"  /flip      → AI signal 🎲\n"
-        f"  /help      → แสดง menu นี้\n\n"
-        f"⚠️ คำสั่งทำงานเฉพาะ chat นี้เท่านั้น",
+        f"{dd_icon} *Drawdown Report*\n\n"
+        f"Balance:         `${balance:,.2f}`\n"
+        f"Equity:          `${equity:,.2f}`\n"
+        f"Floating DD:     `${floating_dd:,.2f}` ({dd_pct:.1f}%)\n"
+        f"Today P&L:       `${today_pnl:+.2f}`\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Daily DD Limit:  `{limit_pct:.0f}%`\n"
+        f"Status:          `{status}`\n"
+        f"⏰ `{_now_str()}`",
         parse_mode="Markdown",
     )
 
+
 # ── /ping ─────────────────────────────────────────────────────
-async def cmd_ping(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ตรวจว่า bot ยังมีชีวิตอยู่ + latency"""
     if not _authorized(update):
         return
-    t_recv      = datetime.now(timezone.utc)
-    latency_ms  = int((t_recv - update.message.date.replace(tzinfo=timezone.utc)).total_seconds() * 1000)
+
+    t_recv     = datetime.now(timezone.utc)
+    latency_ms = int(
+        (t_recv - update.message.date.replace(tzinfo=timezone.utc)).total_seconds() * 1000
+    )
     sessions    = _current_sessions()
     paused_text = "⏸ PAUSED" if _is_paused() else "▶️ RUNNING"
 
@@ -755,13 +745,11 @@ async def cmd_ping(
 
 
 # ── /uptime ───────────────────────────────────────────────────
-async def cmd_uptime(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot process ทำงานมานานแค่ไหนแล้ว"""
     if not _authorized(update):
         return
+
     delta   = datetime.now(timezone.utc) - _BOT_START_TIME
     days    = delta.days
     hours   = delta.seconds // 3600
@@ -779,21 +767,19 @@ async def cmd_uptime(
 
 
 # ── /gold ─────────────────────────────────────────────────────
-async def cmd_gold(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ราคาทองแบบ real-time จาก MT5"""
     if not _authorized(update):
         return
+
     try:
         import MetaTrader5 as mt5
         tick = mt5.symbol_info_tick("XAUUSDm")
         if tick is None:
             raise ValueError("XAUUSDm tick not available")
 
-        spread_usd  = round(tick.ask - tick.bid, 2)
-        mid         = (tick.bid + tick.ask) / 2
+        spread_usd = round(tick.ask - tick.bid, 2)
+        mid        = (tick.bid + tick.ask) / 2
 
         await update.message.reply_text(
             f"💛 *XAU/USD (Gold)*\n\n"
@@ -813,13 +799,11 @@ async def cmd_gold(
 
 
 # ── /spread ───────────────────────────────────────────────────
-async def cmd_spread(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_spread(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Spread ปัจจุบันของทุก symbol"""
     if not _authorized(update):
         return
+
     symbols = CFG.get('trading', {}).get('symbols', ['XAUUSDm'])
     try:
         import MetaTrader5 as mt5
@@ -832,9 +816,7 @@ async def cmd_spread(
             else:
                 lines.append(f"  `{sym:<10}` — N/A")
         lines.append(f"\n⏰ `{_now_str()}`")
-        await update.message.reply_text(
-            "\n".join(lines), parse_mode="Markdown"
-        )
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
     except Exception as e:
         await update.message.reply_text(
             f"❌ ดึง spread ไม่ได้\n`{str(e)[:120]}`",
@@ -842,63 +824,20 @@ async def cmd_spread(
         )
 
 
-# ── /dd ───────────────────────────────────────────────────────
-async def cmd_dd(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    """Drawdown ปัจจุบัน + เทียบ daily limit"""
-    if not _authorized(update):
-        return
-    acc     = _load_account()
-    balance = acc.get('balance', 0)
-    equity  = acc.get('equity',  0)
-
-    if balance <= 0:
-        await update.message.reply_text("❌ ไม่พบข้อมูล account (bot อาจยังไม่ได้รัน)")
-        return
-
-    floating_dd = max(0.0, balance - equity)
-    dd_pct      = (floating_dd / balance * 100) if balance > 0 else 0
-    today_pnl   = _pnl_summary(days_back=1)['pnl']
-    limit_pct   = CFG.get('risk', {}).get('max_daily_loss_pct', 0.05) * 100
-
-    if dd_pct >= limit_pct:      dd_icon = "🔴"
-    elif dd_pct >= limit_pct / 2: dd_icon = "🟡"
-    else:                          dd_icon = "🟢"
-
-    status = "⚠️ WARNING — ใกล้ถึง limit!" if dd_pct >= limit_pct * 0.8 else "✅ OK"
-
-    await update.message.reply_text(
-        f"{dd_icon} *Drawdown Report*\n\n"
-        f"Balance:         `${balance:,.2f}`\n"
-        f"Equity:          `${equity:,.2f}`\n"
-        f"Floating DD:     `${floating_dd:,.2f}` ({dd_pct:.1f}%)\n"
-        f"Today P&L:       `${today_pnl:+.2f}`\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Daily DD Limit:  `{limit_pct:.0f}%`\n"
-        f"Status:          `{status}`\n"
-        f"⏰ `{_now_str()}`",
-        parse_mode="Markdown",
-    )
-
-
 # ── /session ──────────────────────────────────────────────────
-async def cmd_session(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Session ตลาดที่เปิดอยู่ตอนนี้"""
     if not _authorized(update):
         return
+
     hour = datetime.now(timezone.utc).hour
 
     # (name, emoji, open_utc, close_utc, top_pairs)
     sessions_def = [
-        ("Sydney",   "🦘", 21,  6,  "AUD NZD"),
-        ("Tokyo",    "🗼",  0,  9,  "JPY AUD CHF"),
-        ("London",   "🎡",  7, 16,  "EUR GBP Gold"),
-        ("New York", "🗽", 12, 21,  "USD Gold"),
+        ("Sydney",   "🦘", 21,  6, "AUD NZD"),
+        ("Tokyo",    "🗼",  0,  9, "JPY AUD CHF"),
+        ("London",   "🎡",  7, 16, "EUR GBP Gold"),
+        ("New York", "🗽", 12, 21, "USD Gold"),
     ]
 
     lines = ["🌍 *Market Sessions (UTC)*\n"]
@@ -908,26 +847,21 @@ async def cmd_session(
         lines.append(f"  {flag} *{name}*  {status}")
         lines.append(f"     {start:02d}:00–{end:02d}:00 | {pairs}")
 
-    # London-NY overlap (best liquidity for Gold)
     if 12 <= hour < 16:
         lines.append(f"\n⚡ *London + NY Overlap* — liquidity สูงสุด (Gold ชอบช่วงนี้)")
     elif 7 <= hour < 9:
         lines.append(f"\n⚡ *Tokyo + London Overlap*")
 
     lines.append(f"\n⏰ `{_now_str()}`")
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode="Markdown"
-    )
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 # ── /quote ────────────────────────────────────────────────────
-async def cmd_quote(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """สุ่ม trading wisdom quote"""
     if not _authorized(update):
         return
+
     text, author = random.choice(_QUOTES)
     await update.message.reply_text(
         f"💭 *Trading Wisdom*\n\n"
@@ -938,13 +872,11 @@ async def cmd_quote(
 
 
 # ── /flip ─────────────────────────────────────────────────────
-async def cmd_flip(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_flip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """AI coin flip BUY/SELL (เพื่อความสนุก เท่านั้น)"""
     if not _authorized(update):
         return
+
     result     = random.choice(["BUY  📈", "SELL 📉"])
     confidence = random.randint(51, 99)
     reasons    = [
@@ -959,30 +891,66 @@ async def cmd_flip(
         "เห็นในฝัน",
         "ตับบอก",
     ]
-    reason = random.choice(reasons)
 
     await update.message.reply_text(
         f"🪙 *AI Signal Generator™*\n\n"
         f"Signal:     `{result}`\n"
         f"Confidence: `{confidence}%`\n"
-        f"Reason:     _{reason}_\n\n"
+        f"Reason:     _{random.choice(reasons)}_\n\n"
         f"⚠️ _สัญญาณนี้ไม่มีความหมายทางการเงินใดๆ_\n"
         f"_เป็นแค่ coin flip เพื่อความสนุก_ 🎲",
         parse_mode="Markdown",
     )
 
 
+# ── /help ─────────────────────────────────────────────────────
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """รายการคำสั่งทั้งหมด"""
+    if not _authorized(update):
+        return
+
+    await update.message.reply_text(
+        f"🤖 *AURUM BOT Commands*\n\n"
+        f"*ดูข้อมูล:*\n"
+        f"  /status      → สถานะรวมทั้งหมด\n"
+        f"  /balance     → balance + margin\n"
+        f"  /positions   → open positions\n"
+        f"  /trades N    → N trades ล่าสุด\n"
+        f"  /pnl         → P&L วัน/สัปดาห์/เดือน\n"
+        f"  /risk        → risk settings\n"
+        f"  /dd          → drawdown ปัจจุบัน\n\n"
+        f"*ตลาด:*\n"
+        f"  /gold        → ราคาทอง real-time\n"
+        f"  /spread      → spread ทุก symbol\n"
+        f"  /session     → session ที่เปิดอยู่\n\n"
+        f"*ควบคุม:*\n"
+        f"  /pause       → หยุดเทรดชั่วคราว\n"
+        f"  /resume      → เปิดเทรดต่อ\n"
+        f"  /closeall    → ปิดทุก position\n\n"
+        f"*Reset (ใช้เมื่อ circuit breaker ทำงาน):*\n"
+        f"  /reset\\_risk  → Reset ทุกอย่าง + ปลดล็อก\n"
+        f"  /reset\\_daily → Reset เฉพาะ daily loss\n"
+        f"  /reset\\_cb    → Reset เฉพาะ consecutive losses\n\n"
+        f"*เบ็ดเตล็ด:*\n"
+        f"  /ping        → ตรวจ bot alive + latency\n"
+        f"  /uptime      → bot รันมานานแค่ไหน\n"
+        f"  /quote       → trading wisdom\n"
+        f"  /flip        → AI signal 🎲\n"
+        f"  /help        → แสดง menu นี้\n\n"
+        f"⚠️ คำสั่งทำงานเฉพาะ chat นี้เท่านั้น",
+        parse_mode="Markdown",
+    )
+
+
 # ── Unknown command ───────────────────────────────────────────
-async def cmd_unknown(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
     await update.message.reply_text(
         "❓ ไม่รู้จักคำสั่งนี้\n"
         "ใช้ /help เพื่อดูรายการคำสั่ง"
     )
+
 
 # ══════════════════════════════════════════════════════════════
 # Bot Setup & Run
@@ -1002,73 +970,76 @@ def run_telegram_bot():
 
     log.info("Starting Telegram command bot...")
 
-    # Build application
     app = Application.builder().token(TOKEN).build()
 
-    # Register commands
     handlers = [
+        # ── ดูข้อมูล ──────────────────────────────
         ("status",       cmd_status),
-        ("closeall",     cmd_closeall),
-        ("confirmclose", cmd_confirmclose),
-        ("pause",        cmd_pause),
-        ("resume",       cmd_resume),
-        ("pnl",          cmd_pnl),
+        ("balance",      cmd_balance),
         ("positions",    cmd_positions),
         ("trades",       cmd_trades),
-        ("balance",      cmd_balance),
+        ("pnl",          cmd_pnl),
         ("risk",         cmd_risk),
-        # ── ใหม่ ─────────────────────────────────
-        ("ping",         cmd_ping),
-        ("uptime",       cmd_uptime),
+        ("dd",           cmd_dd),
+        # ── ตลาด ──────────────────────────────────
         ("gold",         cmd_gold),
         ("spread",       cmd_spread),
-        ("dd",           cmd_dd),
         ("session",      cmd_session),
+        # ── ควบคุม ────────────────────────────────
+        ("pause",        cmd_pause),
+        ("resume",       cmd_resume),
+        ("closeall",     cmd_closeall),
+        ("confirmclose", cmd_confirmclose),
+        # ── Reset ─────────────────────────────────
+        ("reset_risk",   cmd_reset_risk),
+        ("reset_daily",  cmd_reset_daily),
+        ("reset_cb",     cmd_reset_cb),
+        # ── เบ็ดเตล็ด ──────────────────────────────
+        ("ping",         cmd_ping),
+        ("uptime",       cmd_uptime),
         ("quote",        cmd_quote),
         ("flip",         cmd_flip),
-        # ─────────────────────────────────────────
         ("help",         cmd_help),
     ]
 
     for cmd, handler in handlers:
         app.add_handler(CommandHandler(cmd, handler))
 
-    # Unknown command handler
-    app.add_handler(
-        MessageHandler(filters.COMMAND, cmd_unknown)
-    )
+    app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
-    # Set bot commands (แสดงใน Telegram menu)
     async def _set_commands(application):
         await application.bot.set_my_commands([
-            BotCommand("status",    "สถานะรวม account + positions"),
-            BotCommand("balance",   "Balance + margin details"),
-            BotCommand("positions", "Open positions"),
-            BotCommand("trades",    "Trades ล่าสุด"),
-            BotCommand("pnl",       "P&L วัน/สัปดาห์/เดือน"),
-            BotCommand("risk",      "Risk settings"),
-            BotCommand("dd",        "Drawdown ปัจจุบัน"),
-            BotCommand("gold",      "ราคาทอง real-time"),
-            BotCommand("spread",    "Spread ทุก symbol"),
-            BotCommand("session",   "Session ตลาดที่เปิดอยู่"),
-            BotCommand("pause",     "หยุดเทรดชั่วคราว"),
-            BotCommand("resume",    "เปิดเทรดต่อ"),
-            BotCommand("closeall",  "ปิดทุก position"),
-            BotCommand("ping",      "ตรวจ bot alive + latency"),
-            BotCommand("uptime",    "Bot รันมานานแค่ไหน"),
-            BotCommand("quote",     "Trading wisdom"),
-            BotCommand("flip",      "AI signal (เล่นๆ)"),
-            BotCommand("help",      "รายการคำสั่ง"),
+            BotCommand("status",      "สถานะรวม account + positions"),
+            BotCommand("balance",     "Balance + margin details"),
+            BotCommand("positions",   "Open positions"),
+            BotCommand("trades",      "Trades ล่าสุด"),
+            BotCommand("pnl",         "P&L วัน/สัปดาห์/เดือน"),
+            BotCommand("risk",        "Risk settings"),
+            BotCommand("dd",          "Drawdown ปัจจุบัน"),
+            BotCommand("gold",        "ราคาทอง real-time"),
+            BotCommand("spread",      "Spread ทุก symbol"),
+            BotCommand("session",     "Session ตลาดที่เปิดอยู่"),
+            BotCommand("pause",       "หยุดเทรดชั่วคราว"),
+            BotCommand("resume",      "เปิดเทรดต่อ"),
+            BotCommand("closeall",    "ปิดทุก position"),
+            BotCommand("reset_risk",  "Reset ทุกอย่าง + ปลดล็อก"),
+            BotCommand("reset_daily", "Reset daily loss counter"),
+            BotCommand("reset_cb",    "Reset consecutive loss counter"),
+            BotCommand("ping",        "ตรวจ bot alive + latency"),
+            BotCommand("uptime",      "Bot รันมานานแค่ไหน"),
+            BotCommand("quote",       "Trading wisdom"),
+            BotCommand("flip",        "AI signal (เล่นๆ)"),
+            BotCommand("help",        "รายการคำสั่ง"),
         ])
 
     app.post_init = _set_commands
 
     log.info("✅ Telegram bot ready — polling...")
     app.run_polling(
-        allowed_updates = ["message"],
+        allowed_updates      = ["message"],
         drop_pending_updates = True,
     )
 
+
 if __name__ == "__main__":
-    # ✅ FIX: ไม่ต้อง basicConfig — setup_logging() เรียกแล้วที่ top of file
     run_telegram_bot()

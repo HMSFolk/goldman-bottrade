@@ -1084,6 +1084,44 @@ class RiskManager:
         self._save_cb_state()
         log.info("✅ Circuit breaker manually resumed")
 
+    def reset_circuit_breaker(
+        self,
+        reset_consecutive   : bool = True,
+        reset_daily_tracking: bool = False,
+    ) -> None:
+        """
+        Reset circuit breaker state ทั้ง in-memory และ disk
+        โดยไม่ต้อง restart bot — เรียกจาก main loop เมื่อตรวจพบ flag file
+
+        Args:
+            reset_consecutive:    ล้าง consecutive_count (default True)
+            reset_daily_tracking: ล้าง _daily_start_balance ด้วย (default False)
+
+        Note:
+            CB daily check อ่าน P&L จาก DB โดยตรง — losses ที่เกิดไปแล้ว
+            ยังคงอยู่ใน DB แต่ bot จะ resume ได้โดยไม่ trigger ซ้ำทันที
+            (trigger จะเกิดอีกครั้งถ้ายังขาดทุนเกิน limit และไม่ได้แก้ limit)
+        """
+        self._cb_state.is_triggered   = False
+        self._cb_state.trigger_level  = ""
+        self._cb_state.trigger_reason = ""
+        self._cb_state.triggered_at   = None
+        self._cb_state.auto_resume_at = None
+
+        if reset_consecutive:
+            self._cb_state.consecutive_count = 0
+
+        self._save_cb_state()
+
+        if reset_daily_tracking:
+            self.reset_daily()   # ล้าง _daily_start_balance / _pnl_today
+
+        log.info(
+            "✅ Circuit breaker reset "
+            f"(reset_consecutive={reset_consecutive}, "
+            f"reset_daily_tracking={reset_daily_tracking})"
+        )
+
     # ══════════════════════════════════════════════════════════
     # Circuit Breaker — Individual Checks
     # ══════════════════════════════════════════════════════════

@@ -13,13 +13,22 @@ Startup sequence:
   6. run forever
 
 Defense layers ทุก tick:
-  [1] Manual pause flag
-  [2] MT5 connection     → auto-reconnect (ensure_connected)
-  [3] Circuit breaker    → auto-pause
-  [4] News window        → skip tick
-  [4.5] Session filter   → skip tick ถ้าออกนอก London/NY  ← ใหม่
-  [4.7] Regime detection → skip tick ถ้า volatile/low-conf
-  [5] Per-symbol: spread → regime-aware signal → execute
+  [0]   Telegram reset flags   → reset CB โดยไม่ restart
+  [0.5] Session loss update    → สแกน MT5 history อัปเดต session_losses
+  [1]   Manual pause flag
+  [2]   MT5 connection         → auto-reconnect (ensure_connected)
+  [3]   Circuit breaker        → auto-pause
+  [4]   News window            → skip tick
+  [4.5] Session filter         → skip tick ถ้าออกนอก London/NY
+  [4.7] Regime detection       → skip tick ถ้า volatile/low-conf
+
+Per-symbol (run_tick):
+  [1.3] Session loss limit     → stop XAU after N losses / session
+  [5.5] Per-symbol conf gate   → XAU ต้องการ 0.65 (global 0.55)
+  [6]   Cooldown (loss-aware)  → XAU พัก 60 min หลังแพ้ (global 15 min)
+  [8]   Volume multiplier      → XAU lot × 0.70
+
+Session resets: 6:00 / 13:00 / 21:00 UTC (config: daily_tracking.reset_hours_utc)
 ════════════════════════════════════════════════════════════
 """
 import logging
@@ -45,6 +54,23 @@ from config import get_config, validate_config, reload_config
 CFG = get_config()
 
 log = logging.getLogger("bot.main")
+
+# ── Flags directory (shared กับ telegram_bot.py) ───────────────
+_FLAGS_DIR = Path(CFG.get('paths', {}).get('flags', 'flags'))
+
+# ── Reset flag specs ────────────────────────────────────────────
+# (flag_filename, reset_consecutive, reset_daily_tracking, label)
+_RESET_SPECS = [
+    ("reset_all.flag",   True,  True,  "all"),
+    ("reset_daily.flag", False, True,  "daily"),
+    ("reset_cb.flag",    True,  False, "consecutive"),
+]
+
+# ── Session reset hours UTC (reset per-symbol loss counters) ────
+# default: 3 รอบ ตรงกับ London open / NY open / Asia close
+_SESSION_RESET_HOURS: list = (
+    CFG.get("daily_tracking", {}).get("reset_hours_utc", [6, 13, 21])
+)
 
 # ── Imports ────────────────────────────────────────────────────
 from bot.mt5_client      import MT5Client
@@ -85,6 +111,13 @@ class BotState:
 
         # Cooldown tracking
         self.last_trade_time: dict = {}
+
+        # Per-symbol session loss tracking (reset _SESSION_RESET_HOURS ต่อวัน)
+        # session_losses[symbol] = จำนวน loss ที่ปิดแล้วใน session ปัจจุบัน
+        # last_loss_time[symbol] = Unix timestamp ที่ XAU/symbol แพ้ล่าสุด
+        self.session_losses    : dict  = {s: 0 for s in self.symbols}
+        self.session_start_time: float = time.time()
+        self.last_loss_time    : dict  = {}   # symbol → Unix ts ของ loss ล่าสุด
 
         # Error tracking per symbol
         self.symbol_errors: dict = {s: 0 for s in self.symbols}
@@ -243,9 +276,22 @@ def run_tick(symbol: str):
     t0 = time.time()
 
     try:
+        # ── 0. Per-symbol config ──────────────────────────────
+        sym_cfg = get_symbol_config(symbol)
+
         # ── 1. ตรวจ pause flag ────────────────────────────────
         if STATE.is_paused():
             log.info(f"⏸ Bot paused — skip {symbol}")
+            return
+
+        # ── 1.3 Session loss limit (per-symbol) ──────────────
+        cur_losses = STATE.session_losses.get(symbol, 0)
+        max_losses = sym_cfg["max_session_losses"]
+        if cur_losses >= max_losses:
+            log.info(
+                f"[{symbol}] session losses {cur_losses}/{max_losses} "
+                f"→ skip until next session reset"
+            )
             return
 
         # ── 1.5 News Window Check ─────────────────────────────
@@ -329,8 +375,27 @@ def run_tick(symbol: str):
             f"filters={setup.filters_passed}"
         )
 
+        # ── 5.5 Per-symbol confidence gate ───────────────────
+        # กรอง BEFORE cooldown — ถ้า confidence ไม่ผ่าน sym threshold
+        # ไม่ต้องนับ cooldown หรือ record loss
+        if setup.confidence < sym_cfg["min_confidence"]:
+            log.info(
+                f"[{symbol}] conf {setup.confidence:.3f} < "
+                f"sym threshold {sym_cfg['min_confidence']:.3f} → skip"
+            )
+            return
+
         # ── 6. Cooldown Check ─────────────────────────────────
-        if not _check_cooldown(symbol, setup.direction):
+        # ถ้า loss ล่าสุดยังอยู่ใน cooldown_after_loss → ใช้ cooldown นานขึ้น
+        last_loss      = STATE.last_loss_time.get(symbol, 0)
+        elapsed_loss   = time.time() - last_loss
+        after_loss_sec = sym_cfg["cooldown_after_loss"] * 60
+        cooldown_min   = (
+            sym_cfg["cooldown_after_loss"]
+            if elapsed_loss < after_loss_sec
+            else None   # None = ใช้ global CFG['signal']['cooldown_min']
+        )
+        if not _check_cooldown(symbol, setup.direction, cooldown_min):
             log.info(f"{symbol}: cooldown active — skip")
             return
 
@@ -356,15 +421,32 @@ def run_tick(symbol: str):
         else:
             is_valid = setup.is_valid
 
+        # ── 7.5 Per-symbol confidence gate (regime path) ─────
+        # predict_with_regime ใช้ global threshold ภายใน
+        # ถ้า sym threshold สูงกว่า → กรองอีกครั้ง
+        if is_valid:
+            regime_conf = (
+                reg_result["signal"].confidence
+                if (regime is not None and "signal" in reg_result)
+                else setup.confidence
+            )
+            if regime_conf < sym_cfg["min_confidence"]:
+                log.info(
+                    f"  [{symbol}] regime conf {regime_conf:.3f} < "
+                    f"sym threshold {sym_cfg['min_confidence']:.3f} → blocked"
+                )
+                is_valid = False
+
         # ── 8. Send Order ─────────────────────────────────────
         if is_valid:
             result = STATE.executor.send_order(
-                symbol      = symbol,
-                direction   = setup.direction,
-                sl_distance = setup.sl_distance,
-                tp_distance = setup.tp_distance,
-                confidence  = setup.confidence,
-                comment     = "bot_trade",  # ⬅️ แก้ให้สั้นๆ ปลอดภัย MT5 ไม่เตะออกแน่นอน
+                symbol            = symbol,
+                direction         = setup.direction,
+                sl_distance       = setup.sl_distance,
+                tp_distance       = setup.tp_distance,
+                confidence        = setup.confidence,
+                comment           = "bot_trade",
+                volume_multiplier = sym_cfg["risk_multiplier"],  # XAU=0.70
             )
 
             # ⬅️ แก้ไขวิธีการเรียกเช็คผลลัพธ์จาก result['success'] เป็น result.success
@@ -405,20 +487,114 @@ def run_tick(symbol: str):
             )
 
 
-def _check_cooldown(symbol: str, direction: int) -> bool:
-    """ป้องกันเปิด order ซ้ำ symbol เดิมถี่เกินไป"""
+def _check_cooldown(
+    symbol      : str,
+    direction   : int,
+    cooldown_min: int = None,   # None = อ่านจาก CFG (global default)
+) -> bool:
+    """
+    ป้องกันเปิด order ซ้ำ symbol เดิมถี่เกินไป
+    cooldown_min override ได้ต่อ symbol (XAU ใช้ cooldown_after_loss หลังแพ้)
+    """
     if direction == 0:
         return True   # HOLD ไม่ต้อง check cooldown
 
-    last_time = STATE.last_trade_time.get(symbol, 0)
-    cooldown  = CFG['signal']['cooldown_min'] * 60
-    elapsed   = time.time() - last_time
+    last_time    = STATE.last_trade_time.get(symbol, 0)
+    cooldown_min = cooldown_min if cooldown_min is not None \
+                   else CFG['signal']['cooldown_min']
+    cooldown     = cooldown_min * 60
+    elapsed      = time.time() - last_time
 
     if elapsed < cooldown:
         remaining = int((cooldown - elapsed) / 60)
         log.debug(f"{symbol}: cooldown {remaining}min remaining")
         return False
     return True
+
+
+# ══════════════════════════════════════════════════════════════
+# Per-Symbol Config & Session Loss Tracking
+# ══════════════════════════════════════════════════════════════
+def get_symbol_config(symbol: str) -> dict:
+    """
+    คืน per-symbol config ผสม default + override จาก symbol_settings
+
+    ตัวอย่าง:
+        sym_cfg = get_symbol_config("XAUUSDm")
+        # → {"min_confidence": 0.65, "risk_multiplier": 0.70,
+        #     "max_session_losses": 2, "cooldown_after_loss": 60}
+    """
+    defaults = {
+        "min_confidence"     : CFG.get("signal", {}).get("min_confidence", 0.55),
+        "risk_multiplier"    : 1.0,
+        "max_session_losses" : 99,    # 99 = ปิด feature
+        "cooldown_after_loss": CFG.get("signal", {}).get("cooldown_min", 15),
+    }
+    overrides = dict(CFG.get("symbol_settings", {}).get(symbol, {}))
+    overrides.pop("_default", None)   # ลบ key พิเศษออก
+    return {**defaults, **overrides}
+
+
+def _update_session_losses():
+    """
+    สแกน MT5 position history ตั้งแต่ต้น session
+    → อัปเดต STATE.session_losses[symbol] และ STATE.last_loss_time[symbol]
+    เรียกต้น run_all_symbols() ทุก tick (1 API call รวมทุก symbol)
+    """
+    try:
+        since = datetime.fromtimestamp(
+            STATE.session_start_time, tz=timezone.utc
+        )
+        now   = datetime.now(timezone.utc)
+
+        deals = mt5.history_deals_get(since, now)
+        if not deals:
+            return
+
+        magic = CFG.get("order", {}).get("magic_number", 0)
+
+        new_losses   = {s: 0 for s in STATE.symbols}
+        last_loss_ts = {}
+
+        for d in deals:
+            sym = d.symbol
+            if sym not in new_losses:
+                continue
+            if d.magic != magic:
+                continue          # ข้าม deal ของ bot อื่น
+            if d.profit < 0:
+                new_losses[sym] += 1
+                last_loss_ts[sym] = max(
+                    last_loss_ts.get(sym, 0), d.time
+                )
+
+        STATE.session_losses = new_losses
+        STATE.last_loss_time.update(last_loss_ts)
+
+    except Exception as e:
+        log.debug(f"_update_session_losses error: {e}")
+
+
+def _do_session_reset():
+    """
+    Reset per-symbol session loss counters
+    เรียกโดย scheduler 3 ครั้งต่อวัน (6:00 / 13:00 / 21:00 UTC default)
+    ตั้งค่าใน config: daily_tracking.reset_hours_utc
+    """
+    STATE.session_losses     = {s: 0 for s in STATE.symbols}
+    STATE.session_start_time = time.time()
+    STATE.last_loss_time     = {}
+
+    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    log.info(f"📅 Session reset @ {now_str} — per-symbol loss counters cleared")
+
+    try:
+        notify(
+            f"📅 *Session Reset* @ `{now_str}`\n"
+            f"Loss counters cleared — bot continues trading"
+        )
+    except Exception:
+        pass
 
 
 # ══════════════════════════════════════════════════════════════
@@ -436,6 +612,38 @@ def run_all_symbols():
 
     # ตรวจ config reload (hot-reload)
     _check_config_reload()
+
+    # ── [0] Telegram Reset Flags ──────────────────────────────
+    # Telegram bot สร้าง flag file → main loop อ่านแล้ว reset in-memory state
+    # ทำก่อน CB check เสมอ เพื่อให้ reset มีผลใน tick เดียวกัน
+    for fname, reset_consec, reset_daily, label in _RESET_SPECS:
+        flag = _FLAGS_DIR / fname
+        if flag.exists():
+            try:
+                STATE.risk.reset_circuit_breaker(
+                    reset_consecutive    = reset_consec,
+                    reset_daily_tracking = reset_daily,
+                )
+                STATE.set_pause(False)
+                flag.unlink(missing_ok=True)
+                log.info(f"✅ Bot reset [{label}] by Telegram request")
+                notify(
+                    f"✅ *Bot Reset [{label.upper()}]*\n"
+                    f"Circuit breaker cleared\n"
+                    f"Bot กลับมาเทรดแล้ว\n"
+                    f"⏰ `{_now_str()}`"
+                )
+            except Exception as e:
+                log.error(f"Reset [{label}] error: {e}", exc_info=True)
+                try:
+                    flag.unlink(missing_ok=True)  # ลบ flag ทิ้งถึงแม้ error
+                except Exception:
+                    pass
+
+    # ── [0.5] อัปเดต session losses จาก MT5 history ──────────
+    # ตรวจ deals ที่ปิดใน session นี้ → อัปเดต session_losses + last_loss_time
+    # 1 API call ต่อ tick รวมทุก symbol (overhead ต่ำ)
+    _update_session_losses()
 
     # ── [2] MT5 connection → auto-reconnect ───────────────────
     if not STATE.client.ensure_connected():
@@ -593,6 +801,15 @@ def main():
     summary_hour = CFG['notifications']['daily_summary_hour']
     schedule.every().day.at(f"{summary_hour:02d}:00").do(_daily_summary)
     schedule.every().sunday.at("02:00").do(_weekly_retrain)
+
+    # ── Session reset 3x/day — clear per-symbol loss counters ─
+    # default: 6:00 (London open), 13:00 (NY open), 21:00 (Asia open)
+    for h in _SESSION_RESET_HOURS:
+        schedule.every().day.at(f"{h:02d}:00").do(_do_session_reset)
+    log.info(
+        f"📅 Session resets scheduled at: "
+        f"{[f'{h:02d}:00' for h in _SESSION_RESET_HOURS]} UTC"
+    )
 
     log.info("▶ Running initial tick...")
     run_all_symbols()

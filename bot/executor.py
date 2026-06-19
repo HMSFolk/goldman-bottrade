@@ -154,13 +154,14 @@ class OrderExecutor:
     # ══════════════════════════════════════════════════════════
     def send_order(
         self,
-        symbol:      str,
-        direction:   int,           # 1=BUY -1=SELL
-        sl_distance: float,         # ระยะ SL (price units)
-        tp_distance: float,         # ระยะ TP (price units)
-        confidence:  float = 0.0,
-        n_agree:     int   = 0,     # ✅ NEW: กี่โมเดลเห็นตรงกัน (สำหรับ position check)
-        comment:     str   = "",
+        symbol:           str,
+        direction:        int,           # 1=BUY -1=SELL
+        sl_distance:      float,         # ระยะ SL (price units)
+        tp_distance:      float,         # ระยะ TP (price units)
+        confidence:       float = 0.0,
+        n_agree:          int   = 0,     # ✅ กี่โมเดลเห็นตรงกัน (สำหรับ position check)
+        comment:          str   = "",
+        volume_multiplier:float = 1.0,   # ✅ NEW: per-symbol lot multiplier (XAU=0.50)
     ) -> OrderResult:
         """
         ส่ง Market Order ไปยัง MT5
@@ -218,6 +219,17 @@ class OrderExecutor:
             )
 
         lot = report.lot_size
+
+        # ── ✅ Apply per-symbol volume multiplier ─────────────
+        # XAU: 0.50 → lot เล็กลงครึ่ง | EUR/GBP: 1.0 → ไม่เปลี่ยน
+        if volume_multiplier != 1.0:
+            lot_before = lot
+            lot        = round(lot * volume_multiplier, 2)
+            lot        = max(lot, self.risk.min_lot)   # ไม่ต่ำกว่า min_lot
+            log.debug(
+                f"  volume_multiplier={volume_multiplier} "
+                f"lot {lot_before:.2f} → {lot:.2f}"
+            )
 
         # ── Step 2: คำนวณ SL/TP Price ─────────────────────────
         sl_price, tp_price = self.risk.calculate_sl_tp_price(
