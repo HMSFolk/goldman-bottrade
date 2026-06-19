@@ -223,7 +223,9 @@ class StrategyV1:
         setup.rr_ratio = round(tp_dist / sl_dist, 2)
 
         # ── Step 9: RR Check ───────────────────────────────────
-        min_rr = 1.0   # ต้องได้ RR อย่างน้อย 1.5
+        # ✅ FIX: อ่าน min_rr จาก config แทน hardcode 1.0
+        # ถ้า tp_ratio=0.5 → RR=0.5 → ต้องตั้ง min_rr=0.5 ใน config ด้วย
+        min_rr = CFG['order'].get('min_rr', 1.0)
         if setup.rr_ratio < min_rr:
             setup.direction = 0
             setup.filters_failed.append(
@@ -233,7 +235,12 @@ class StrategyV1:
         setup.filters_passed.append(f"rr:{setup.rr_ratio:.1f}")
 
         # ── Step 10: Final Confidence Check ────────────────────
-        if setup.confidence < CFG['signal']['min_confidence']:
+        # ✅ FIX: อ่าน use_final_conf_check จาก config
+        # config: use_final_conf_check: false → ข้ามได้เลย
+        use_final_conf = CFG.get('strategy_filters', {}).get(
+            'use_final_conf_check', True
+        )
+        if use_final_conf and setup.confidence < CFG['signal']['min_confidence']:
             setup.direction = 0
             setup.filters_failed.append(
                 f"final_conf_low ({setup.confidence:.3f})"
@@ -510,8 +517,6 @@ class StrategyV1:
             'backtest_win_rate': BACKTEST_WIN_RATE,
             'backtest_pf'      : BACKTEST_PF,
         }
-
-
 # ══════════════════════════════════════════════════════════════
 # __init__.py ของ strategies/
 # ══════════════════════════════════════════════════════════════
