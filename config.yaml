@@ -1,6 +1,11 @@
 # TRADING BOT — MASTER CONFIG  (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
 # ============================================================
+# ── 0. BROKER (ใหม่) ─────────────────────────────────────────
+# เปลี่ยน broker → แก้ "name" บรรทัดเดียว (ดู symbol_map ข้อ 26)
+broker:
+  name: "exness"
+
 # ── 1. MT5 & BROKER ─────────────────────────────────────────
 mt5:
   timeout_sec: 30
@@ -16,11 +21,12 @@ mt5:
     notify_telegram      : true
 
 # ── 2. SYMBOLS ───────────────────────────────────────────────
+# ✅ ชื่อกลาง (ไม่มี m) — broker จริงถูก resolve ผ่าน symbol_map (ข้อ 26)
 symbols:
   active:
-    - "XAUUSDm"
-    - "EURUSDm"
-    - "GBPUSDm"
+    - "XAUUSD"
+    - "EURUSD"
+    - "GBPUSD"
   primary_timeframe: "M15"
   htf_timeframes:
     - "H1"
@@ -32,9 +38,9 @@ risk:
   max_daily_loss_pct     : 0.05   # หยุดถ้าขาดทุน 5%/วัน
   max_open_trades        : 8
   max_spread_points:
-    XAUUSDm: 30
-    EURUSDm: 15
-    GBPUSDm: 20
+    XAUUSD: 30
+    EURUSD: 15
+    GBPUSD: 20
     default: 25
   min_lot: 0.01
   max_lot: 0.50
@@ -46,9 +52,9 @@ risk:
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
   sl_points:
-    XAUUSDm: 100
-    EURUSDm:  80
-    GBPUSDm:  90
+    XAUUSD: 100
+    EURUSD:  80
+    GBPUSD:  90
     default:  90
   tp_ratio: 0.7              # TP = SL × 0.7 (เก็บกำไรเร็วขึ้น)
   tp_by_regime:
@@ -177,10 +183,9 @@ spread_filter:
   fail_open: true
   warn_pct: 70
   limits:
-    XAUUSDm: 0.80
     XAUUSD : 0.80
-    EURUSDm: 0.00030
-    GBPUSDm: 0.00050
+    EURUSD : 0.00030
+    GBPUSD : 0.00050
     default: 0.00100
 
 # ── 16. CIRCUIT BREAKER ─────────────────────────────────────
@@ -255,9 +260,9 @@ session_filter:
     - New York  # 12:00-21:00 UTC (EDT)
     # - Tokyo   # ไม่ใช้ เพราะทุก symbol ใช้ symbol_sessions แทน
   symbol_sessions:
-    XAUUSDm: ["London", "New York"]
-    EURUSDm: ["London", "New York"]
-    GBPUSDm: ["London", "New York"]
+    XAUUSD: ["London", "New York"]
+    EURUSD: ["London", "New York"]
+    GBPUSD: ["London", "New York"]
   friday_close_hour: 21
   monday_open_hour :  7
 
@@ -279,17 +284,17 @@ pyramiding:
 # Override global settings ต่อ symbol
 # Code อ่านที่: bot/main.py และ bot/risk_manager.py
 symbol_settings:
-  XAUUSDm:
+  XAUUSD:
     min_confidence     : 0.75  # สูงกว่า global (model bias BUY)
     max_session_losses : 1     # แพ้ 1 ครั้ง → หยุด XAU ทั้ง session
     risk_multiplier    : 0.50  # lot เล็กลง 50%
     cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้
-  EURUSDm:
+  EURUSD:
     min_confidence     : 0.55
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 15
-  GBPUSDm:
+  GBPUSD:
     min_confidence     : 0.55
     risk_multiplier    : 1.00
     max_session_losses : 3
@@ -305,3 +310,27 @@ symbol_settings:
 daily_tracking:
   reset_hours_utc        : [6, 13, 21]  # Session: Asian / London / NY
   loss_limit_per_session : 0.03         # 3% per session
+
+# ── 26. SYMBOL MAP (ใหม่ — broker-agnostic) ─────────────────
+# ชื่อ "กลาง" (ซ้าย) ที่ใช้ทุกที่ในระบบ → ชื่อจริงของแต่ละ broker (ขวา)
+# ย้าย broker ใหม่: 1) เปลี่ยน broker.name ข้อ 0  2) เพิ่มแถวที่นี่ถ้ายังไม่มี
+# ไม่ต้องแก้ไฟล์โค้ดเลยสักไฟล์
+symbol_map:
+  XAUUSD:
+    exness     : "XAUUSDm"
+    icmarkets  : "XAUUSD"
+    pepperstone: "XAUUSD"
+    oanda      : "XAU_USD"
+    fxcm       : "XAU/USD"
+  EURUSD:
+    exness     : "EURUSDm"
+    icmarkets  : "EURUSD"
+    pepperstone: "EURUSD"
+    oanda      : "EUR_USD"
+    fxcm       : "EUR/USD"
+  GBPUSD:
+    exness     : "GBPUSDm"
+    icmarkets  : "GBPUSD"
+    pepperstone: "GBPUSD"
+    oanda      : "GBP_USD"
+    fxcm       : "GBP/USD"

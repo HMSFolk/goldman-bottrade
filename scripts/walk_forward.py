@@ -1,4 +1,10 @@
 # scripts/walk_forward.py
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import pandas as pd
 import numpy as np
 import vectorbt as vbt 
@@ -7,11 +13,19 @@ from sklearn.preprocessing import LabelEncoder  # ✅ ใส่เพิ่ม: 
 from xgboost import XGBClassifier
 import joblib
 
-def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: float = 0.7):
+from config import get_config   # ✅ NEW: ใช้ canonical symbol จาก config
+CFG = get_config()
+
+
+def walk_forward_test(symbol: str = None, n_splits: int = 5, train_ratio: float = 0.7):
     """
     Walk-forward: เทรนบนอดีต ทดสอบบนอนาคต
     ทำซ้ำหลายรอบ เหมือนการใช้งานจริง
+
+    ✅ FIX: symbol default เป็น None → ใช้ตัวแรกใน config.symbols.active
+       (canonical, ไม่มี m) แทนการ hardcode "XAUUSDm"
     """
+    symbol = symbol or CFG['symbols']['active'][0]
     df = pd.read_parquet(f"data/processed/{symbol}_M15_features.parquet")
 
     # ✅ ล้างแถวข้อมูลที่ label เป็น NaN ทิ้ง 
@@ -98,16 +112,33 @@ def walk_forward_test(symbol: str = "XAUUSDm", n_splits: int = 5, train_ratio: f
     results_df = pd.DataFrame(results)
     print("\n=== Walk-Forward Summary ===")
     print(results_df.describe().round(3))
-    results_df.to_csv("reports/walk_forward_results.csv", index=False)
+    # ✅ FIX: ใส่ symbol ในชื่อไฟล์ — เดิมไฟล์เดียวทับกันถ้ารันหลาย symbol
+    results_df.to_csv(f"reports/walk_forward_{symbol}.csv", index=False)
     
     return results_df
+
+
+def run_all_symbols(symbols: list = None, n_splits: int = 5) -> dict:
+    """
+    รัน walk-forward ทุก symbol ที่ active ใน config (เรียกจาก docker-compose ได้)
+    symbol ไหน fail จะถูกข้าม ไม่ทำให้ตัวอื่นพังตาม
+    """
+    import os
+    os.makedirs("reports", exist_ok=True)
+    symbols = symbols or CFG['symbols']['active']
+    all_results = {}
+    for sym in symbols:
+        try:
+            all_results[sym] = walk_forward_test(symbol=sym, n_splits=n_splits)
+        except Exception as e:
+            print(f"❌ Walk-Forward {sym} ล้มเหลว: {e}")
+            all_results[sym] = None
+    return all_results
 
 if __name__ == "__main__":
     import os
     print("⏳ Starting Walk-Forward Out-Of-Sample Validation...")
     os.makedirs("reports", exist_ok=True)
-    
-    try:
-        walk_forward_test(symbol="XAUUSDm", n_splits=5)
-    except Exception as e:
-        print(f"❌ รัน Walk-Forward ล้มเหลวเนื่องจาก: {e}")
+
+    # ✅ FIX: รันทุก symbol ใน config แทนการ hardcode XAUUSDm ตัวเดียว
+    run_all_symbols()

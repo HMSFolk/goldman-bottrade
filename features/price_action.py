@@ -219,9 +219,19 @@ def _add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
         's1': features['pivot_s1'], 's2': features['pivot_s2'],
     })
     dist_to_levels = levels.sub(cur, axis=0).abs()
-    
-    # ใช้ skipna=True เพื่อแก้ปัญหาคำเตือนของ Pandas
-    features['nearest_pivot_level'] = dist_to_levels.idxmin(axis=1, skipna=True)
+
+    # ✅ FIX FutureWarning: idxmin บนแถวที่ NA ทั้งแถวจะถูก deprecate
+    # ในอนาคต (pandas จะ raise ValueError แทนที่จะคืน NaN เฉยๆ)
+    # เกิดเฉพาะแถวแรกๆ ของข้อมูล ที่ shift(1) ยังไม่มี bar ก่อนหน้า
+    # ให้คำนวณ pivot ได้ → เช็คก่อนว่าแถวไหนมีข้อมูลจริง ค่อยหา idxmin
+    # เฉพาะแถวนั้น แถวที่ไม่มีข้อมูลปล่อยเป็น NaN ตามเดิม (ความหมายเดิม
+    # ไม่เปลี่ยน แค่ไม่เรียก idxmin บนแถวว่างเปล่าอีกต่อไป)
+    nearest_level = pd.Series(np.nan, index=df.index, dtype=object)
+    has_data = dist_to_levels.notna().any(axis=1)
+    if has_data.any():
+        nearest_level.loc[has_data] = dist_to_levels.loc[has_data].idxmin(axis=1)
+
+    features['nearest_pivot_level'] = nearest_level
     features['nearest_pivot_dist']  = dist_to_levels.min(axis=1) / cur * 100
 
     # เช็คว่าราคา "แตะ" หรือเข้าใกล้ Level ต่างๆ หรือไม่ (Tolerance 0.15%)

@@ -50,7 +50,7 @@ def retrain_all(
         if 'symbols' in CFG and 'active' in CFG['symbols']:
             symbols = CFG['symbols']['active']
         else:
-            symbols = ["XAUUSDm", "EURUSDm", "GBPUSDm"]
+            symbols = ["XAUUSD", "EURUSD", "GBPUSD"]
 
     timeframe = timeframe or CFG.get('symbols', {}).get('primary_timeframe', 'M15')
     results   = {}

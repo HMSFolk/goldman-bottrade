@@ -50,7 +50,7 @@ from bot.setup_logging import setup_logging
 setup_logging()   # ← ต้องเรียกก่อน import อื่นๆ ทั้งหมด
 
 # ✅ FIX BUG-2+5+7: ใช้ get_config() แทน yaml.safe_load โดยตรง
-from config import get_config, validate_config, reload_config
+from config import get_config, validate_config, reload_config, unresolve_symbol
 CFG = get_config()
 
 log = logging.getLogger("bot.main")
@@ -313,7 +313,11 @@ def run_tick(symbol: str):
         if STATE.regime_detector is not None:
             try:
                 regime = STATE.regime_detector.detect_from_mt5(
-                    symbol="XAUUSDm", timeframe="H4", bars=300
+                    symbol="XAUUSD", timeframe="H4", bars=300
+                    # ⚠️ NOTE: hardcode ใช้ XAU เป็น proxy เช็ค regime
+                    # ทุก symbol (ไม่ใช่ bug ของ broker-agnostic แต่เป็น
+                    # design เดิม) — ถ้าตั้งใจให้เช็ค regime ของ symbol
+                    # นั้นๆ เอง ให้เปลี่ยนเป็น symbol=symbol แทน
                 )
                 log.info(f"  [{symbol}] Regime: {regime}")
 
@@ -365,7 +369,12 @@ def run_tick(symbol: str):
                 log.warning(f"Unknown HTF timeframe skipped: {htf_name}")
 
         # ── 4. Build Features ─────────────────────────────────
-        df = build_features_live(df_primary, symbol, STATE.timeframe)
+        # ✅ FIX: ส่ง htf_dfs ที่ fetch สดมาแล้วเข้าไปใช้จริง
+        # เดิม fetch มาแล้วทิ้งเฉยๆ — build_features_live ไปอ่าน
+        # data/raw/ ของรอบ collect ล่าสุดแทน (อาจค้างคืน ไม่ใช่ราคาสด)
+        df = build_features_live(
+            df_primary, symbol, STATE.timeframe, htf_dfs=htf_dfs
+        )
 
         # ── 5. Strategy Evaluate ──────────────────────────────
         setup = STATE.strategy.evaluate(df, symbol)
@@ -520,7 +529,7 @@ def get_symbol_config(symbol: str) -> dict:
     คืน per-symbol config ผสม default + override จาก symbol_settings
 
     ตัวอย่าง:
-        sym_cfg = get_symbol_config("XAUUSDm")
+        sym_cfg = get_symbol_config("XAUUSD")
         # → {"min_confidence": 0.65, "risk_multiplier": 0.70,
         #     "max_session_losses": 2, "cooldown_after_loss": 60}
     """
@@ -557,7 +566,11 @@ def _update_session_losses():
         last_loss_ts = {}
 
         for d in deals:
-            sym = d.symbol
+            # ✅ CRITICAL FIX: d.symbol จาก MT5 เป็นชื่อ broker (XAUUSDm)
+            # แต่ new_losses ใช้ key ชื่อกลาง (XAUUSD) — ถ้าไม่แปลงก่อน
+            # เงื่อนไขข้างล่างจะ False เสมอ → session loss tracking
+            # พังเงียบๆ ไม่มี error เลย (นับ loss ไม่ได้สักครั้ง)
+            sym = unresolve_symbol(d.symbol)
             if sym not in new_losses:
                 continue
             if d.magic != magic:

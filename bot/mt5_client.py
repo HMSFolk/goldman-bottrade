@@ -36,6 +36,8 @@ from dotenv import load_dotenv
 load_dotenv()
 log = logging.getLogger("bot.mt5_client")
 
+from config import resolve_symbol, unresolve_symbol   # ✅ NEW: broker resolver
+
 # ── Timeframe Mapping ──────────────────────────────────────────
 TF_MAP = {
     "M1" : mt5.TIMEFRAME_M1,
@@ -210,7 +212,7 @@ class MT5Client:
     # [4] NEW METHODS — Auto-Reconnect Layer
     # ══════════════════════════════════════════════════════════
 
-    def health_check(self, symbol: str = "XAUUSDm") -> bool:
+    def health_check(self, symbol: str = "XAUUSD") -> bool:
         """
         ตรวจว่า MT5 ยังเชื่อมต่ออยู่หรือไม่ (เร็ว < 100ms)
 
@@ -490,15 +492,20 @@ class MT5Client:
         เปิด symbol ใน Market Watch
         MT5 บางตัวต้อง activate ก่อนใช้งาน
         ✅ FIX BUG-9: ใช้ get_config() แทน open(config.yaml) โดยตรง
+        ✅ NEW: symbols จาก config เป็นชื่อกลาง ต้อง resolve ก่อน activate
         """
         from config import get_config
         cfg     = get_config()
-        symbols = cfg['symbols']['active']
+        symbols = cfg['symbols']['active']   # ชื่อกลาง เช่น "XAUUSD"
         for sym in symbols:
-            if not mt5.symbol_select(sym, True):
-                log.warning(f"Cannot activate symbol: {sym}")
+            broker_sym = resolve_symbol(sym, cfg)
+            if not mt5.symbol_select(broker_sym, True):
+                log.warning(
+                    f"Cannot activate symbol: {broker_sym} "
+                    f"(canonical={sym})"
+                )
             else:
-                log.debug(f"Symbol activated: {sym}")
+                log.debug(f"Symbol activated: {broker_sym} (canonical={sym})")
 
     # ══════════════════════════════════════════════════════════
     # Market Data
@@ -526,12 +533,14 @@ class MT5Client:
                 f"(รองรับ: {list(TF_MAP.keys())})"
             )
 
-        rates = mt5.copy_rates_from_pos(symbol, tf, 0, n_bars)
+        # ✅ NEW: symbol ที่รับมาเป็นชื่อกลาง resolve ก่อนเรียก MT5
+        broker_symbol = resolve_symbol(symbol)
+        rates = mt5.copy_rates_from_pos(broker_symbol, tf, 0, n_bars)
 
         if rates is None or len(rates) == 0:
             err = mt5.last_error()
             raise ValueError(
-                f"ไม่มีข้อมูล {symbol} {timeframe}: {err}"
+                f"ไม่มีข้อมูล {symbol} ({broker_symbol}) {timeframe}: {err}"
             )
 
         df = pd.DataFrame(rates)
@@ -578,7 +587,7 @@ class MT5Client:
                 f"(รองรับ: {list(TF_MAP.keys())})"
             )
         rates = mt5.copy_rates_range(
-            symbol, tf, date_from, date_to
+            resolve_symbol(symbol), tf, date_from, date_to
         )
 
         if rates is None or len(rates) == 0:
@@ -598,7 +607,7 @@ class MT5Client:
         """
         self.ensure_connected()
 
-        tick = mt5.symbol_info_tick(symbol)
+        tick = mt5.symbol_info_tick(resolve_symbol(symbol))
         if tick is None:
             raise ValueError(
                 f"ไม่มี tick {symbol}: {mt5.last_error()}"
@@ -658,7 +667,8 @@ class MT5Client:
         self.ensure_connected()
 
         if symbol:
-            raw = mt5.positions_get(symbol=symbol)
+            # ✅ NEW: symbol ที่รับมาเป็นชื่อกลาง resolve ก่อนถาม MT5
+            raw = mt5.positions_get(symbol=resolve_symbol(symbol))
         else:
             raw = mt5.positions_get()
 
@@ -669,7 +679,8 @@ class MT5Client:
         for pos in raw:
             positions.append({
                 'ticket'    : pos.ticket,
-                'symbol'    : pos.symbol,
+                # ✅ NEW: แปลงกลับเป็นชื่อกลาง — caller ไม่ต้องรู้จัก broker
+                'symbol'    : unresolve_symbol(pos.symbol),
                 'type'      : 'BUY' if pos.type == 0 else 'SELL',
                 'volume'    : pos.volume,
                 'open_price': pos.price_open,
@@ -732,8 +743,10 @@ class MT5Client:
         df = df[df['type'].isin([0, 1])]   # 0=BUY 1=SELL
 
         # กรอง symbol
+        # ✅ NEW: symbol ที่รับมาเป็นชื่อกลาง resolve ก่อน filter
+        # เพราะ deals จาก MT5 เก็บด้วยชื่อ broker (XAUUSDm)
         if symbol:
-            df = df[df['symbol'] == symbol]
+            df = df[df['symbol'] == resolve_symbol(symbol)]
 
         # กรองเฉพาะ magic number ของบอทนี้
         # ✅ FIX BUG-9: ใช้ get_config() แทน open(config.yaml) โดยตรง
@@ -742,6 +755,10 @@ class MT5Client:
         magic = cfg['order']['magic_number']
         if 'magic' in df.columns:
             df = df[df['magic'] == magic]
+
+        # ✅ NEW: แปลง symbol column กลับเป็นชื่อกลางก่อน return
+        if 'symbol' in df.columns and not df.empty:
+            df['symbol'] = df['symbol'].apply(unresolve_symbol)
 
         df.set_index('time', inplace=True)
         return df
@@ -771,9 +788,12 @@ class MT5Client:
 
         self.ensure_connected()
 
-        info = mt5.symbol_info(symbol)
+        # ✅ NEW: symbol (canonical) resolve เป็นชื่อ broker ก่อนเรียก MT5
+        # แต่ cache เก็บด้วย canonical (symbol) เหมือนเดิม
+        broker_symbol = resolve_symbol(symbol)
+        info = mt5.symbol_info(broker_symbol)
         if info is None:
-            raise ValueError(f"Symbol ไม่พบ: {symbol}")
+            raise ValueError(f"Symbol ไม่พบ: {symbol} ({broker_symbol})")
 
         spec = {
             'symbol'             : symbol,
@@ -805,8 +825,9 @@ class MT5Client:
         """Spread ปัจจุบันเป็น points"""
         self.ensure_connected()
 
-        tick  = mt5.symbol_info_tick(symbol)
-        info  = mt5.symbol_info(symbol)
+        broker_symbol = resolve_symbol(symbol)   # ✅ NEW
+        tick  = mt5.symbol_info_tick(broker_symbol)
+        info  = mt5.symbol_info(broker_symbol)
         if tick is None or info is None:
             return 999   # ค่า safe สูงๆ ถ้า error
 

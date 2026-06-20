@@ -153,6 +153,74 @@ def reload_config() -> dict:
     return get_config()
 
 
+# ════════════════════════════════════════════════════════════
+# Broker-Agnostic Symbol Resolver
+# ════════════════════════════════════════════════════════════
+# ทั้งระบบ (config, model, database, log) ใช้ชื่อ "กลาง" เดียวกัน
+# เช่น "XAUUSD" ไม่ว่าจะเทรดกับ broker ไหน
+#
+# มีแค่ 2 ไฟล์ที่ต้องรู้จักชื่อจริงของ broker:
+#   - data/collect_mt5.py  (ดึงข้อมูล)
+#   - bot/mt5_client.py    (ราคา/position/order จริง)
+#
+# ย้าย broker ใหม่ → แก้ config.yaml ที่เดียว (broker.name + symbol_map)
+# ════════════════════════════════════════════════════════════
+
+def resolve_symbol(canonical: str, cfg: dict = None) -> str:
+    """
+    แปลงชื่อกลาง → ชื่อจริงของ broker ปัจจุบัน
+
+    Example (broker=exness):
+        resolve_symbol("XAUUSD") → "XAUUSDm"
+    Example (broker=icmarkets):
+        resolve_symbol("XAUUSD") → "XAUUSD"  (ไม่มี m)
+
+    ถ้าไม่เจอใน symbol_map → คืนชื่อเดิม (fail-safe เผื่อ symbol
+    ที่ไม่ได้อยู่ใน 3 คู่หลัก เช่น USDJPY ที่ยังไม่ได้เพิ่ม mapping)
+    """
+    cfg     = cfg or get_config()
+    broker  = cfg.get('broker', {}).get('name', 'exness')
+    mapping = cfg.get('symbol_map', {}).get(canonical, {})
+
+    broker_symbol = mapping.get(broker)
+    if not broker_symbol:
+        logger.warning(
+            f"[resolve_symbol] '{canonical}' ไม่มี mapping สำหรับ "
+            f"broker='{broker}' — ใช้ชื่อเดิม"
+        )
+        return canonical
+    return broker_symbol
+
+
+def unresolve_symbol(broker_symbol: str, cfg: dict = None) -> str:
+    """
+    แปลงชื่อจริงของ broker → ชื่อกลาง (reverse lookup)
+    ใช้ตอนรับ event จาก MT5 (เช่น position.symbol == "XAUUSDm")
+    แล้วต้องการ map กลับเป็น "XAUUSD" เพื่อ lookup config/model
+
+    Example (broker=exness):
+        unresolve_symbol("XAUUSDm") → "XAUUSD"
+    """
+    cfg    = cfg or get_config()
+    broker = cfg.get('broker', {}).get('name', 'exness')
+
+    for canon, brokers in cfg.get('symbol_map', {}).items():
+        if brokers.get(broker) == broker_symbol:
+            return canon
+    return broker_symbol   # ไม่เจอ → คืนชื่อเดิม
+
+
+def all_broker_symbols(cfg: dict = None) -> list:
+    """
+    คืนรายชื่อ broker symbols ทั้งหมดที่ active
+    ใช้ตอน MT5 connect เพื่อ symbol_select() ทุกตัว
+    Example: ["XAUUSDm", "EURUSDm", "GBPUSDm"]
+    """
+    cfg    = cfg or get_config()
+    active = cfg.get('symbols', {}).get('active', [])
+    return [resolve_symbol(s, cfg) for s in active]
+
+
 def validate_config(raise_on_error: bool = True) -> bool:
     """
     ตรวจ config ครบก่อน bot start — เรียกใน main.py
@@ -213,7 +281,6 @@ def validate_config(raise_on_error: bool = True) -> bool:
 
     logger.info("[CONFIG] Validation passed ✓")
     return True
-
 
 # ── Module-level shortcut ────────────────────────────────────
 # ใช้ cfg["mt5"]["login"] ได้เลยในทุกไฟล์

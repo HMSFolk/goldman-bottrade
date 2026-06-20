@@ -266,7 +266,7 @@ def build_all_features(
     timeframe: str  = "M15",) -> dict:
     """
     Build features ทุก symbol แล้วบันทึกลง data/processed/
-    คืนค่า dict: {"XAUUSD": DataFrame, "EURUSDm": DataFrame, ...}
+    คืนค่า dict: {"XAUUSD": DataFrame, "EURUSD": DataFrame, ...}
     """
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -320,23 +320,40 @@ def build_all_features(
 
 # ── Live Feature Builder (ใช้ใน bot/main.py) ─────────────────
 def build_features_live(
-    df_raw: pd.DataFrame,
-    symbol: str,
-    timeframe: str = "M15",) -> pd.DataFrame:
+    df_raw:    pd.DataFrame,
+    symbol:    str,
+    timeframe: str  = "M15",
+    htf_dfs:   dict = None,   # ✅ NEW: ส่ง HTF ที่ fetch สดจาก MT5 มาได้
+) -> pd.DataFrame:
     """
     สร้าง features สำหรับ predict real-time
     รับ DataFrame จาก mt5_client.get_ohlcv() โดยตรง
     ไม่บันทึกไฟล์ — คืนค่า DataFrame พร้อม predict ทันที
+
+    htf_dfs:
+      ✅ ถ้าส่งมา (เช่น main.py ดึง H1/H4 สดจาก MT5 มาก่อนแล้ว) จะใช้ตัวนี้
+         เป็นข้อมูลสดจริง ไม่ใช่ของรอบ collect ล่าสุดที่อาจค้างคืน
+      ถ้าไม่ส่ง (None, default) → fallback อ่านจาก data/raw/ เหมือนเดิม
+      (เผื่อ caller อื่นที่ไม่ได้ fetch สดมาให้ เช่น debug/backtest scripts)
     """
     df = df_raw.copy()
     df = check_data_quality(df, f"live_{symbol}")
 
-    # 1. โหลด HTF จากไฟล์ที่มีอยู่
-    htf_dfs = {}
+    # 1. ใช้ HTF สดที่ส่งมา ถ้าไม่มี/ขาดบางตัว → fallback อ่านจากไฟล์
+    if htf_dfs is None:
+        htf_dfs = {}
+
     for tf in CFG['symbols']['htf_timeframes']:
-        path = RAW_DIR / f"{symbol}_{tf}.parquet"
-        if path.exists():
-            htf_dfs[tf] = pd.read_parquet(path)
+        missing = tf not in htf_dfs or htf_dfs[tf] is None or htf_dfs[tf].empty
+        if missing:
+            path = RAW_DIR / f"{symbol}_{tf}.parquet"
+            if path.exists():
+                log.debug(f"  HTF {symbol}_{tf}: ไม่มีของสด — fallback อ่านไฟล์")
+                htf_dfs[tf] = pd.read_parquet(path)
+        else:
+            # ✅ ของสดจาก MT5 ยังไม่ผ่าน quality check (เรียงเวลา/ลบ row เสีย)
+            # ทำให้เหมือนกับ build_features() ฝั่ง train ที่ check ทุกครั้ง
+            htf_dfs[tf] = check_data_quality(htf_dfs[tf], f"live_{symbol}_{tf}")
 
     # 2. โหลด Macro จากไฟล์ที่มีอยู่ (แก้ Bug ข้อมูล Macro หายตอนเทรดจริง)
     macro_dfs = {}
@@ -441,7 +458,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--symbols", nargs="+",
-        help="ระบุ symbol เช่น XAUUSD EURUSDm (default: ทุกตัวใน config)"
+        help="ระบุ symbol เช่น XAUUSD EURUSD (default: ทุกตัวใน config)"
     )
     parser.add_argument(
         "--timeframe", default="M15",

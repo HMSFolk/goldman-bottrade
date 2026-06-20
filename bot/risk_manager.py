@@ -29,7 +29,7 @@ from collections import deque
 import MetaTrader5 as mt5
 
 # ✅ FIX BUG-1: ใช้ get_config() แทน open(config.yaml) โดยตรง
-from config import get_config
+from config import get_config, resolve_symbol   # ✅ NEW: broker resolver
 CFG = get_config()
 
 log = logging.getLogger("bot.risk_manager")
@@ -358,9 +358,11 @@ class RiskManager:
           lot           = 100 / (20 × 10) = 0.5 lot
         """
         # ดึง symbol spec จาก MT5
-        info = mt5.symbol_info(symbol)
+        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนเรียก MT5
+        broker_symbol = resolve_symbol(symbol)
+        info = mt5.symbol_info(broker_symbol)
         if info is None:
-            log.error(f"ไม่พบ symbol: {symbol}")
+            log.error(f"ไม่พบ symbol: {symbol} ({broker_symbol})")
             return self.min_lot
 
         tick_value  = info.trade_tick_value   # $ per tick per 1 lot
@@ -429,8 +431,9 @@ class RiskManager:
         BUY:  entry=ask  SL=ask-sl_dist  TP=ask+tp_dist
         SELL: entry=bid  SL=bid+sl_dist  TP=bid-tp_dist
         """
-        tick   = mt5.symbol_info_tick(symbol)
-        info   = mt5.symbol_info(symbol)
+        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนเรียก MT5
+        tick   = mt5.symbol_info_tick(resolve_symbol(symbol))
+        info   = mt5.symbol_info(resolve_symbol(symbol))
 
         if tick is None or info is None:
             raise ValueError(f"ไม่มีข้อมูล {symbol}")
@@ -534,7 +537,8 @@ class RiskManager:
             )
 
         # ตรวจว่า symbol นี้มี position อยู่แล้วไหม
-        sym_positions = mt5.positions_get(symbol=symbol) or []
+        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนถาม MT5
+        sym_positions = mt5.positions_get(symbol=resolve_symbol(symbol)) or []
         if len(sym_positions) > 0:
             return RiskCheckResult(
                 passed = False,
@@ -563,8 +567,10 @@ class RiskManager:
         เกิดตอนข่าว, ตลาดเปิด/ปิด, liquidity ต่ำ
         XAUUSD ปกติ 20-30 points — ถ้า > 60 อย่าเทรด
         """
-        tick  = mt5.symbol_info_tick(symbol)
-        info  = mt5.symbol_info(symbol)
+        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนเรียก MT5
+        broker_symbol = resolve_symbol(symbol)
+        tick  = mt5.symbol_info_tick(broker_symbol)
+        info  = mt5.symbol_info(broker_symbol)
 
         if tick is None or info is None:
             return RiskCheckResult(
@@ -903,7 +909,8 @@ class RiskManager:
         warn_pct  = cfg_sf.get("warn_pct", 70)
 
         try:
-            tick = mt5.symbol_info_tick(symbol)
+            # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนเรียก MT5
+            tick = mt5.symbol_info_tick(resolve_symbol(symbol))
         except Exception as e:
             log.error(f"check_spread: MT5 error for {symbol}: {e}")
             return SpreadResult(
@@ -954,11 +961,11 @@ class RiskManager:
         """
         ดึง max spread สำหรับ symbol จาก config.yaml
 
-        config ตัวอย่าง:
+        config ตัวอย่าง (key เป็นชื่อกลางแล้ว ไม่มี m):
           spread_filter:
             limits:
-              XAUUSDm: 0.80
-              EURUSDm: 0.0003
+              XAUUSD: 0.80
+              EURUSD: 0.0003
               default: 0.0010
         """
         limits = CFG.get("spread_filter", {}).get("limits", {})
@@ -966,9 +973,6 @@ class RiskManager:
         if isinstance(limits, dict):
             if symbol in limits:
                 return float(limits[symbol])
-            base = symbol.rstrip("m")
-            if base in limits:
-                return float(limits[base])
             return float(limits.get("default", 0.0010))
 
         try:
@@ -1690,15 +1694,11 @@ class RiskManager:
         default = cfg_sf.get("allowed_sessions", ["London", "New York"])
 
         # Per-symbol override
+        # ✅ FIX: symbol เป็นชื่อกลางแล้ว (XAUUSD) ไม่ต้อง strip 'm' อีก
+        # config.symbol_sessions ใช้ key ชื่อกลางตรงกันพอดี
         sym_override = cfg_sf.get("symbol_sessions", {})
         if symbol and symbol in sym_override:
             return list(sym_override[symbol])
-
-        # ลอง strip 'm' suffix (XAUUSDm → XAUUSD)
-        if symbol:
-            base = symbol.rstrip("m")
-            if base in sym_override:
-                return list(sym_override[base])
 
         return list(default)
 
@@ -1762,8 +1762,7 @@ class RiskManager:
     def _next_overlap_open(
         self,
         now          : datetime,
-        session_hours: dict,
-    ) -> Optional[datetime]:
+        session_hours: dict, ) -> Optional[datetime]:
         """เวลาที่ London+NY overlap จะเริ่ม (12:00 EDT หรือ 13:00 EST)"""
         ny_open    = session_hours.get("New York", (12, 21))[0]
         hours_away = self._hours_until(ny_open, now.hour, now.minute)

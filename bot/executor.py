@@ -22,7 +22,7 @@ from typing import Optional
 import MetaTrader5 as mt5
 
 # ✅ FIX BUG-6: ใช้ get_config() แทน open(config.yaml) โดยตรง
-from config import get_config
+from config import get_config, resolve_symbol   # ✅ NEW: broker resolver
 CFG = get_config()
 
 log = logging.getLogger("bot.executor")
@@ -99,7 +99,7 @@ class OrderExecutor:
     วิธีใช้:
         executor = OrderExecutor(client, risk)
         result   = executor.send_order(
-            symbol="XAUUSDm",
+            symbol="XAUUSD",
             direction=1,
             sl_distance=0.015,
             tp_distance=0.030,
@@ -178,6 +178,11 @@ class OrderExecutor:
         """
         t0 = time.time()
 
+        # ✅ NEW: resolve ชื่อกลาง → ชื่อจริงของ broker
+        # ใช้ mt5_symbol เฉพาะตอนเรียก mt5.* เท่านั้น
+        # ส่วน symbol (canonical) ใช้ทุกที่อื่น (risk check, log, DB)
+        mt5_symbol = resolve_symbol(symbol)
+
         # ── Step 0: Position Safety Check ─────────────────────
         # ✅ NEW: ตรวจก่อน risk_manager ว่าเพิ่ม position ได้ไหม
         # รองรับ max_positions_per_symbol > 1 พร้อมเงื่อนไขความปลอดภัย
@@ -237,8 +242,8 @@ class OrderExecutor:
         )
 
         # ── Step 3: ราคา entry ปัจจุบัน ──────────────────────
-        tick   = mt5.symbol_info_tick(symbol)
-        info   = mt5.symbol_info(symbol)
+        tick   = mt5.symbol_info_tick(mt5_symbol)
+        info   = mt5.symbol_info(mt5_symbol)
 
         if tick is None or info is None:
             return OrderResult(
@@ -276,11 +281,11 @@ class OrderExecutor:
         # ✅ FIX BUG-8 CRITICAL: ORDER_FILLING_IOC ใช้ไม่ได้กับ Exness XAUUSD
         #    ต้องตรวจ filling_mode ที่ symbol รองรับก่อนส่ง order
         #    Exness ส่วนใหญ่ใช้ FOK หรือ RETURN ไม่ใช่ IOC
-        filling = self._get_filling_mode(symbol)
+        filling = self._get_filling_mode(mt5_symbol)
 
         request = {
             "action"      : mt5.TRADE_ACTION_DEAL,
-            "symbol"      : symbol,
+            "symbol"      : mt5_symbol,    # ✅ broker symbol ไม่ใช่ canonical
             "volume"      : lot,
             "type"        : order_type,
             "price"       : intended_price,
@@ -529,7 +534,8 @@ class OrderExecutor:
         - Signal กลับทิศแรงมาก
         """
         if symbol:
-            positions = mt5.positions_get(symbol=symbol) or []
+            # ✅ FIX: symbol เป็นชื่อกลาง ต้อง resolve ก่อนถาม MT5
+            positions = mt5.positions_get(symbol=resolve_symbol(symbol)) or []
         else:
             positions = mt5.positions_get() or []
 
@@ -625,14 +631,16 @@ class OrderExecutor:
 
         เรียกจาก bot/main.py ในทุก tick
         """
-        positions = mt5.positions_get(symbol=symbol) or []
+        # ✅ FIX: symbol เป็นชื่อกลาง ต้อง resolve ก่อนเรียก mt5.*
+        mt5_symbol = resolve_symbol(symbol)
+        positions  = mt5.positions_get(symbol=mt5_symbol) or []
 
         for pos in positions:
             if pos.magic != self.magic:
                 continue   # ไม่ใช่ order ของบอทนี้
 
-            tick    = mt5.symbol_info_tick(symbol)
-            info    = mt5.symbol_info(symbol)
+            tick    = mt5.symbol_info_tick(mt5_symbol)
+            info    = mt5.symbol_info(mt5_symbol)
             if tick is None or info is None:
                 continue
 
@@ -695,7 +703,8 @@ class OrderExecutor:
         min_agree = int(cfg_r.get("add_position_min_agree", 2))
 
         try:
-            all_pos = mt5.positions_get(symbol=symbol) or []
+            # ✅ FIX: symbol เป็นชื่อกลาง ต้อง resolve ก่อนถาม MT5
+            all_pos = mt5.positions_get(symbol=resolve_symbol(symbol)) or []
             our_pos = [p for p in all_pos if p.magic == self.magic]
             n_exist = len(our_pos)
         except Exception as e:

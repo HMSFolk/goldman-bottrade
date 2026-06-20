@@ -11,7 +11,7 @@ import logging
 
 # ✅ FIX BUG-11: ลบ load_dotenv() — config.py โหลดแล้วและ merge .env ให้
 # ✅ FIX BUG-7: ใช้ get_config() แทน os.getenv โดยตรง
-from config import get_config
+from config import get_config, resolve_symbol   # ✅ NEW: resolve_symbol
 _CFG = get_config()
 
 log = logging.getLogger("data")
@@ -47,13 +47,17 @@ def _connect() -> bool:
     return mt5.login(int(login), password=str(pwd), server=str(server))
 
 def collect_mt5_data(
-    symbols:    list,
+    symbols:    list,    # ⚠️ ชื่อกลาง เช่น ["XAUUSD","EURUSD","GBPUSD"]
     timeframes: list,
     bars:       dict,
 ) -> dict:
     """
     ดึงข้อมูล OHLCV จาก MT5 บันทึกลง data/raw/
-    คืนค่า dict: {"XAUUSD_M15": DataFrame, ...}
+    คืนค่า dict: {"XAUUSD_M15": DataFrame, ...}  ← key เป็นชื่อกลางเสมอ
+
+    ✅ Broker-agnostic: รับ symbols เป็นชื่อกลาง (XAUUSD)
+       ภายในแปลงเป็นชื่อจริงของ broker (XAUUSDm) ก่อนเรียก MT5
+       แต่บันทึกไฟล์ด้วยชื่อกลางเสมอ — train/model ไม่ต้องรู้จัก broker
     """
     if not _connect():
         raise ConnectionError(f"MT5 connect failed: {mt5.last_error()}")
@@ -64,12 +68,19 @@ def collect_mt5_data(
 
     collected = {}
     try:
-        for sym in symbols:
-            if mt5.symbol_info(sym) is None:
-                log.warning(f"Symbol {sym} ไม่พบใน MT5 — ข้าม")
+        for canonical_sym in symbols:
+            # ✅ resolve ชื่อกลาง → ชื่อจริงของ broker
+            broker_sym = resolve_symbol(canonical_sym, _CFG)
+
+            if mt5.symbol_info(broker_sym) is None:
+                log.warning(
+                    f"Symbol {broker_sym} (canonical={canonical_sym}) "
+                    f"ไม่พบใน MT5 — ข้าม "
+                    f"(เช็ค symbol_map ใน config.yaml ว่าตรงกับ broker จริงไหม)"
+                )
                 continue
 
-            mt5.symbol_select(sym, True)
+            mt5.symbol_select(broker_sym, True)
 
             for tf_name in timeframes:
                 tf     = TF_MAP.get(tf_name)
@@ -78,11 +89,15 @@ def collect_mt5_data(
                     continue
 
                 n_bars = bars.get(tf_name, 5000)
-                key    = f"{sym}_{tf_name}"
-                rates  = mt5.copy_rates_from_pos(sym, tf, 0, n_bars)
+                # ✅ key/filename ใช้ชื่อกลางเสมอ (ไม่ใช่ broker_sym)
+                key    = f"{canonical_sym}_{tf_name}"
+                rates  = mt5.copy_rates_from_pos(broker_sym, tf, 0, n_bars)
 
                 if rates is None or len(rates) == 0:
-                    log.warning(f"ไม่มีข้อมูล {key}: {mt5.last_error()}")
+                    log.warning(
+                        f"ไม่มีข้อมูล {key} (broker_sym={broker_sym}): "
+                        f"{mt5.last_error()}"
+                    )
                     continue
 
                 df = pd.DataFrame(rates)
@@ -94,7 +109,10 @@ def collect_mt5_data(
                 out = raw_dir / f"{key}.parquet"
                 df.to_parquet(out)
                 collected[key] = df
-                log.info(f"  {key}: {len(df):,} bars → {out}")
+                log.info(
+                    f"  {key} (broker:{broker_sym}): "
+                    f"{len(df):,} bars → {out}"
+                )
 
     finally:
         # ✅ FIX BUG-8: shutdown เสมอ ไม่ว่าจะ exception หรือไม่
