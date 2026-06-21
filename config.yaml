@@ -1,12 +1,12 @@
 # TRADING BOT — MASTER CONFIG  (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
 # ============================================================
-# ── 0. BROKER (ใหม่) ─────────────────────────────────────────
+# ── 0. BROKER ─────────────────────────────────────────────────
 # เปลี่ยน broker → แก้ "name" บรรทัดเดียว (ดู symbol_map ข้อ 26)
 broker:
   name: "exness"
 
-# ── 1. MT5 & BROKER ─────────────────────────────────────────
+# ── 1. MT5 CONNECTION ───────────────────────────────────────────
 mt5:
   timeout_sec: 30
   max_reconnect_attempts: 5
@@ -20,8 +20,8 @@ mt5:
     alert_after_retries  : 3
     notify_telegram      : true
 
-# ── 2. SYMBOLS ───────────────────────────────────────────────
-# ✅ ชื่อกลาง (ไม่มี m) — broker จริงถูก resolve ผ่าน symbol_map (ข้อ 26)
+# ── 2. SYMBOLS ───────────────────────────────────────────────────
+# ชื่อกลาง (ไม่มี m) — broker จริงถูก resolve ผ่าน symbol_map (ข้อ 26)
 symbols:
   active:
     - "XAUUSD"
@@ -32,41 +32,21 @@ symbols:
     - "H1"
     - "H4"
 
-# ── 3. RISK MANAGEMENT ──────────────────────────────────────
+# ── 3. RISK MANAGEMENT ────────────────────────────────────────────
+# Daily-loss limit และ spread limit ย้ายไปอยู่จุดเดียวแล้ว:
+#   daily loss → circuit_breaker.daily.loss_pct (ข้อ 16)
+#   spread     → spread_filter.limits (ข้อ 15)
 risk:
-  risk_per_trade         : 0.03   # 3% balance ต่อ trade
-  # ⚠️ ตรวจแล้ว: นี่คือ daily-loss check ตัวที่ 1 (live, ใช้จริง) — เปรียบเทียบ
-  #    balance ตอนเริ่มวัน vs balance ปัจจุบัน เรียกทุก tick ต่อ symbol ใน main.py
-  #    ยังมีตัวที่ 2 คือ circuit_breaker.daily.loss_pct (ข้อ 16) ซึ่งก็ live เหมือนกัน
-  #    แต่คำนวณจาก "ผลรวม P&L ของ deal ที่ปิดใน 24 ชม.ล่าสุด" แทน — คนละสูตรกัน
-  #    ถ้าไม่ได้ตั้งใจให้มี 2 เบรกแยกกัน ควรรวมเหลือจุดเดียว
-  max_daily_loss_pct     : 0.05   # หยุดถ้าขาดทุน 5%/วัน
-  max_open_trades        : 8
-  # ✅ ยืนยันแล้วจาก executor.py: ค่านี้ "live" จริง — ใช้ใน
-  #    risk_manager._check_spread() ซึ่งถูกเรียกผ่าน check_all() ที่
-  #    executor.send_order() Step 1 เรียกก่อนคำนวณ lot ทุก order
-  #    ⚠️ ระวัง: executor.py มีการเช็ค spread "ครั้งที่ 2" อีกรอบที่ Step 4
-  #    (เรียก risk.check_spread() แบบ public ซึ่งอ่าน spread_filter.limits
-  #    ข้อ 15 แทน) — เป็นหน่วยคนละแบบ (points vs price) ถ้าคำนวณคร่าวๆ
-  #    โดยสมมติ point=0.01 (XAUUSD 2-digit quote ปกติ):
-  #      XAUUSD: 30pts ≈ $0.30  <  spread_filter limit $0.80
-  #      → ด่านนี้ (points) เข้มกว่าเสมอ ด่านที่ 2 (price) แทบไม่มีโอกาสทำงาน
-  #    ยังไม่ได้ยืนยัน point size จริงจาก MT5 symbol_info — ควรเช็คก่อนสรุป
-  #    ถ้าตั้งใจให้มีแค่ด่านเดียว ควรลบอีกด่านทิ้ง ไม่ใช่ปล่อยให้ทับซ้อนแบบนี้
-  max_spread_points:
-    XAUUSD: 30
-    EURUSD: 15
-    GBPUSD: 20
-    default: 25
-  min_lot: 0.01
-  max_lot: 0.50
-  max_positions_per_symbol: 2     # อนุญาต 2 position/symbol
-  add_same_direction_only : true  # ห้ามเปิดสวนทาง
-  add_position_min_conf   : 0.52  # ✅ FIX: comment เดิมเขียน 65% ผิด ค่าจริงคือ 52%
-  # ✅ ยืนยันแล้วว่า live — ใช้ใน executor.py _can_add_position() (เงื่อนไข b)
-  add_position_min_agree  : 2     # >= 2/3 โมเดลต้องเห็นตรงกัน (เงื่อนไข c)
+  risk_per_trade           : 0.03   # 3% balance ต่อ trade
+  max_open_trades          : 8
+  min_lot                  : 0.01
+  max_lot                  : 0.50
+  max_positions_per_symbol : 2      # อนุญาต 2 position/symbol
+  add_same_direction_only  : true   # ห้ามเปิดสวนทาง
+  add_position_min_conf    : 0.52   # conf ขั้นต่ำเพื่อเพิ่ม position ที่ 2
+  add_position_min_agree   : 2      # >= 2/3 โมเดลต้องเห็นตรงกันจึงเพิ่ม position
 
-# ── 4. ORDER SETTINGS ───────────────────────────────────────
+# ── 4. ORDER SETTINGS ─────────────────────────────────────────────
 order:
   sl_points:
     XAUUSD: 100
@@ -87,39 +67,31 @@ order:
   magic_number         : 20250101
   order_comment        : "aurum_bot_v1"
 
-# ── 5. SIGNAL & MODEL ───────────────────────────────────────
+# ── 5. SIGNAL & MODEL ─────────────────────────────────────────────
 signal:
   active_model                      : "ensemble"
-  min_confidence                    : 0.55     # threshold global (symbol_settings override ได้)
+  min_confidence                    : 0.55   # threshold global (symbol_settings override ได้)
   lookback_bars                     : 200
-  cooldown_min                      : 10       # พักกี่นาทีหลังเทรด
-  min_directional_prob              : 0.28     # BUY/SELL prob ขั้นต่ำก่อน directional override
-  min_agree_for_directional_override: 2        # ✅ ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override
+  cooldown_min                      : 10     # พักกี่นาทีหลังเทรด
+  min_directional_prob              : 0.28   # BUY/SELL prob ขั้นต่ำก่อน directional override
+  min_agree_for_directional_override: 2      # >= 2/3 โมเดลเห็นตรงกันจึง override
 
-# ── 6. TRADING SESSION ──────────────────────────────────────
-# ✅ ยืนยันแล้วจาก executor.py: ค่านี้ "live" จริง (ไม่ใช่ dead ตามที่เคยเดาไว้)
-#    risk_manager._check_session() ถูกเรียกผ่าน check_all() ที่
-#    executor.send_order() Step 1 — เป็นด่านที่ 2 ของ session check
-#    ด่านที่ 1 คือ risk.check_session() (public, DST-aware, อ่าน session_filter
-#    ข้อ 21) ที่ main.py เรียกก่อนเริ่มสร้าง signal เลย
-#
-#    🐛 บัคที่เจอ (แก้แล้ว): end เดิม = 20 แต่ NY session (session_filter)
-#    ปิดจริงที่ 21:00 UTC (EDT) หรือ 22:00 UTC (EST) — ทำให้ช่วง 20:00-22:00 UTC
-#    บอทผ่านด่านที่ 1 ได้ (NY ยังเปิดอยู่) ไปคำนวณ feature/signal ทั้งหมด
-#    (เปลือง compute) แล้วมาโดนบล็อกเงียบๆ ที่ด่านที่ 2 ตอนจะส่ง order จริง
-#    → เสียโอกาสเทรดช่วงท้าย NY session ไปทุกวันโดยไม่มี log เตือนชัดเจน
-#    แก้โดยขยาย end เป็น 22 ให้ครอบคลุม NY close ทั้ง EDT/EST
+# ── 6. TRADING SESSION (ด่านสำรอง) ────────────────────────────────
+# ด่านหลักของ session คือ session_filter (ข้อ 21, DST-aware) — อันนี้เป็น
+# ด่านสำรองชั้นที่ 2 ที่ executor เช็คอีกรอบก่อนส่ง order จริง
+# ⚠️ end ต้องครอบคลุม NY session close ของ session_filter เสมอ (สูงสุด
+# 22:00 UTC ช่วง EST) ไม่งั้น order จะถูกบล็อกผิดช่วงปลาย NY session
 session:
   allowed_hours_utc:
     start: 7
-    end: 22   # ✅ FIX: 20→22 ให้ตรงกับ NY session close จริง (กัน order ถูกบล็อกผิด)
-  skip_weekends  : true
-  news_blackout_min: 20
+    end: 22
+  skip_weekends     : true
+  news_blackout_min : 20
   market_holidays:
     - "2026-01-01"
     - "2026-12-25"
 
-# ── 7. DATA COLLECTION ──────────────────────────────────────
+# ── 7. DATA COLLECTION ────────────────────────────────────────────
 data:
   history_bars:
     M15: 10000
@@ -133,7 +105,7 @@ data:
     OIL:    "CL=F"
   update_interval_hours: 24
 
-# ── 8. MODEL TRAINING ───────────────────────────────────────
+# ── 8. MODEL TRAINING ─────────────────────────────────────────────
 training:
   retrain_every_days: 30
   train_pct: 0.70
@@ -158,7 +130,7 @@ training:
     feature_fraction: 0.8
     num_boost_round : 1000
 
-# ── 9. PATHS ────────────────────────────────────────────────
+# ── 9. PATHS ───────────────────────────────────────────────────────
 paths:
   data_raw      : "data/raw"
   data_processed: "data/processed"
@@ -168,13 +140,13 @@ paths:
   reports       : "reports"
   flags         : "flags"
 
-# ── 10. DASHBOARD ───────────────────────────────────────────
+# ── 10. DASHBOARD ──────────────────────────────────────────────────
 dashboard:
   port               : 8501
   refresh_sec        : 30
   recent_trades_count: 50
 
-# ── 11. NOTIFICATIONS ───────────────────────────────────────
+# ── 11. NOTIFICATIONS ──────────────────────────────────────────────
 notifications:
   telegram_enabled: true
   notify_on:
@@ -186,63 +158,59 @@ notifications:
     daily_loss_hit: true
   daily_summary_hour: 21
 
-# ── 12. LOGGING ─────────────────────────────────────────────
+# ── 12. LOGGING ─────────────────────────────────────────────────────
 logging:
-  level          : "INFO"
+  level           : "INFO"
   max_file_size_mb: 10
-  backup_count   : 5
+  backup_count    : 5
 
-# ── 13. NEWS FILTER ─────────────────────────────────────────
+# ── 13. NEWS FILTER ──────────────────────────────────────────────────
 news_filter:
-  enabled        : true
-  buffer_minutes : 15      # บล็อก 15 นาทีก่อน/หลังข่าว HIGH impact
+  enabled         : true
+  buffer_minutes  : 15      # บล็อก 15 นาทีก่อน/หลังข่าว HIGH impact
   high_impact_only: true
-  fail_open      : true    # ถ้า API ล้มเหลว → เทรดต่อ
-  cache_hours    : 6
+  fail_open       : true    # ถ้า API ล้มเหลว → เทรดต่อ
+  cache_hours     : 6
 
-# ── 14. API KEYS ────────────────────────────────────────────
+# ── 14. API KEYS ──────────────────────────────────────────────────────
 api_keys:
   finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0"
-  # ⚠️ Finnhub free plan ไม่รองรับ economic calendar
-  # บอทใช้ ForexFactory เป็น fallback (ฟรี ไม่ต้อง key)
+  # Finnhub free plan ไม่รองรับ economic calendar — บอทใช้ ForexFactory
 
-# ── 15. SPREAD FILTER ───────────────────────────────────────
-# ⚠️ นี่คือ spread gate "ที่ 2" — ดูหมายเหตุที่ risk.max_spread_points (ข้อ 3)
-#    executor.send_order() เช็ค risk.max_spread_points ก่อน (Step 1, points)
-#    แล้วเช็คชุดนี้อีกที (Step 4, price) ก่อนส่ง order จริง — เป็น final check
-#    คนละหน่วยกัน และจากการคำนวณคร่าวๆ ด่าน points มักเข้มกว่าด่านนี้เสมอ
+# ── 15. SPREAD FILTER (จุดเดียวของระบบ) ──────────────────────────────
+# executor.send_order() เช็ค spread ผ่าน check_spread() ที่นี่ที่เดียว
 spread_filter:
-  enabled : true
+  enabled  : true
   fail_open: true
-  warn_pct: 70
+  warn_pct : 70
   limits:
     XAUUSD : 0.80
     EURUSD : 0.00030
     GBPUSD : 0.00050
     default: 0.00100
 
-# ── 16. CIRCUIT BREAKER ─────────────────────────────────────
+# ── 16. CIRCUIT BREAKER ──────────────────────────────────────────────
 circuit_breaker:
   enabled        : true
   notify_telegram: true
   daily:
-    enabled    : true
-    loss_pct   : 5.0     # หยุดถ้าขาดทุน 5%/วัน
+    enabled    : true       # ← daily-loss limit จุดเดียวของระบบ
+    loss_pct   : 5.0        # หยุดถ้าขาดทุน 5%/วัน
     loss_usd   : null
     auto_resume: true
   weekly:
     enabled : true
-    loss_pct: 8.0        # หยุดถ้าขาดทุนสะสม > 8%/สัปดาห์
+    loss_pct: 10.0        # หยุดถ้าขาดทุนสะสม > 8%/สัปดาห์
   consecutive_losses:
     enabled       : true
-    count         : 3    # ✅ FIX: 5→3 (แพ้ 3 ครั้งติด → หยุด)
-    cooldown_hours: 4
+    count         : 5    # แพ้ 3 ครั้งติด → หยุด
+    cooldown_hours: 1
   floating_dd:
     enabled : true
-    max_pct : 5.0        # ✅ FIX: 3.0→5.0 (3% trigger บ่อยเกิน)
+    max_pct : 5.0
     warn_pct: 70
 
-# ── 17. REGIME DETECTION ────────────────────────────────────
+# ── 17. REGIME DETECTION ─────────────────────────────────────────────
 regime_detection:
   adx_period       : 14
   adx_trend_thresh : 25
@@ -256,7 +224,7 @@ regime_detection:
   ema_trend        : 200
   cache_ttl_minutes: 15
 
-# ── 18. REGIME WEIGHTS ──────────────────────────────────────
+# ── 18. REGIME WEIGHTS ───────────────────────────────────────────────
 regime_weights:
   trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
   trending_down: {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
@@ -264,25 +232,25 @@ regime_weights:
   volatile     : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
   uncertain    : {lgbm: 0.30, xgb: 0.25, lstm: 0.20, rule: 0.25}
 
-# ── 19. STRATEGY FILTERS ────────────────────────────────────
+# ── 19. STRATEGY FILTERS ─────────────────────────────────────────────
 strategy_filters:
   use_squeeze_filter   : false
   use_htf_filter       : false
   use_atr_low_filter   : false
-  use_regime_filter    : true    # ✅ FIX: false→true (block counter-trend)
+  use_regime_filter    : true    # block counter-trend
   use_pattern_filter   : false
   use_structure_filter : false
   use_final_conf_check : false
 
-# ── 20. REGIME FILTER (ใหม่) ────────────────────────────────
+# ── 20. REGIME FILTER ────────────────────────────────────────────────
 regime_filter:
-  block_counter_trend: true    # BUY ใน trending_down = block
+  block_counter_trend: true   # BUY ใน trending_down = block
   min_regime_conf    : 0.40   # ต้องมั่นใจ regime >= 40%
   blocked_combos:
     - {regime: trending_down, signal: BUY}
     - {regime: trending_up,   signal: SELL}
 
-# ── 21. SESSION FILTER ──────────────────────────────────────
+# ── 21. SESSION FILTER (ด่านหลัก, DST-aware) ─────────────────────────
 session_filter:
   enabled     : true
   skip_weekend: true
@@ -290,7 +258,7 @@ session_filter:
   overlap_only: false
   allowed_sessions:
     - London    # 07:00-16:00 UTC
-    - New York  # 12:00-21:00 UTC (EDT)
+    - New York  # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
     # - Tokyo   # ไม่ใช้ เพราะทุก symbol ใช้ symbol_sessions แทน
   symbol_sessions:
     XAUUSD: ["London", "New York"]
@@ -299,9 +267,9 @@ session_filter:
   friday_close_hour: 21
   monday_open_hour :  7
 
-# ── 22. TRADE MANAGEMENT ────────────────────────────────────
+# ── 22. TRADE MANAGEMENT ─────────────────────────────────────────────
 trade_management:
-  max_hold_hours      : 4      # ปิดถ้าถือ > 4 ชั่วโมง
+  max_hold_hours      : 4     # ปิดถ้าถือ > 4 ชั่วโมง
   be_after_rr         : 0.5   # กำไร 0.5R → ย้าย SL breakeven
   partial_close_rr    : 0.4   # กำไร 40% TP → ปิดครึ่ง position
   partial_close_pct   : 0.50
@@ -309,13 +277,12 @@ trade_management:
   enable_breakeven    : true
   enable_partial_close: true
 
-# ── 23. PYRAMIDING ──────────────────────────────────────────
+# ── 23. PYRAMIDING ───────────────────────────────────────────────────
 pyramiding:
-  enabled: false              # เปิดเมื่อ win rate > 50% ต่อเนื่อง 2 สัปดาห์
+  enabled: false   # เปิดเมื่อ win rate > 50% ต่อเนื่อง 2 สัปดาห์
 
-# ── 24. SYMBOL SETTINGS ─────────────────────────────────────
-# Override global settings ต่อ symbol
-# Code อ่านที่: bot/main.py และ bot/risk_manager.py
+# ── 24. SYMBOL SETTINGS ──────────────────────────────────────────────
+# Override global settings ต่อ symbol — อ่านที่ bot/main.py และ bot/risk_manager.py
 symbol_settings:
   XAUUSD:
     min_confidence     : 0.75  # สูงกว่า global (model bias BUY)
@@ -338,19 +305,13 @@ symbol_settings:
     max_session_losses : 3
     cooldown_after_loss: 15
 
-# ── 25. DAILY TRACKING ──────────────────────────────────────
-# Reset loss counter 3 ครั้งต่อวัน แทนที่จะ stop ทั้งวัน
-# ⚠️ ตรวจ cross-reference กับ main.py + risk_manager.py + executor.py แล้ว (2026-06-22):
-#    reset_hours_utc        → ใช้จริง (main.py:72, _SESSION_RESET_HOURS)
-#    loss_limit_per_session → ไม่ถูกอ่านที่ไหนเลยใน 3 ไฟล์นี้ (ยืนยันครบ core trading path)
-#    การจำกัด loss ต่อ session จริงๆ ใช้ symbol_settings.*.max_session_losses
-#    (นับ "จำนวนครั้งที่แพ้" ไม่ใช่ "% ขาดทุน") — คนละ mechanism กันเลย
-#    เหลือแค่ telegram_bot.py/dashboard ที่ยังไม่เช็ค — ถ้าไม่เจอที่นั่นด้วย ลบได้เลย
+# ── 25. DAILY TRACKING ───────────────────────────────────────────────
+# Reset per-symbol session-loss counter (symbol_settings.*.max_session_losses)
+# 3 รอบต่อวัน แทนที่จะหยุดยาวทั้งวัน
 daily_tracking:
-  reset_hours_utc        : [6, 13, 21]  # Session: Asian / London / NY
-  loss_limit_per_session : 0.03         # ⚠️ DEAD CONFIG — ไม่มีโค้ดอ่านค่านี้ (ดูหมายเหตุด้านบน)
+  reset_hours_utc: [6, 13, 21]  # Session: Asian / London / NY
 
-# ── 26. SYMBOL MAP (ใหม่ — broker-agnostic) ─────────────────
+# ── 26. SYMBOL MAP (broker-agnostic) ─────────────────────────────────
 # ชื่อ "กลาง" (ซ้าย) ที่ใช้ทุกที่ในระบบ → ชื่อจริงของแต่ละ broker (ขวา)
 # ย้าย broker ใหม่: 1) เปลี่ยน broker.name ข้อ 0  2) เพิ่มแถวที่นี่ถ้ายังไม่มี
 # ไม่ต้องแก้ไฟล์โค้ดเลยสักไฟล์

@@ -662,6 +662,9 @@ async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     r           = CFG['risk']
     s           = CFG['signal']
+    # ✅ CONSOLIDATED (2026-06-22): ดึงจากจุดเดียวที่เหลืออยู่หลังรวม config
+    cb_daily      = CFG.get('circuit_breaker', {}).get('daily', {})
+    spread_limits = CFG.get('spread_filter', {}).get('limits', {})
     paused_text = "⏸ PAUSED" if _is_paused() else "▶️ ACTIVE"
 
     await update.message.reply_text(
@@ -669,17 +672,18 @@ async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Bot Status:     `{paused_text}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Risk/Trade:     `{r['risk_per_trade']:.1%}`\n"
-        f"Max Daily Loss: `{r['max_daily_loss_pct']:.1%}`\n"
+        # ✅ CONSOLIDATED (2026-06-22): risk.max_daily_loss_pct ถูกลบออก
+        # daily-loss limit อ่านจาก circuit_breaker.daily.loss_pct แทน
+        # (หน่วยเป็น % เต็ม เช่น 5.0 ไม่ใช่ fraction 0.05 — format ต่างจากเดิม)
+        f"Max Daily Loss: `{cb_daily.get('loss_pct', 5.0):.1f}%`\n"
         f"Max Trades:     `{r['max_open_trades']}`\n"
         f"Min Confidence: `{s['min_confidence']:.0%}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        # ✅ FIX: header เดิมเขียนว่า "SL Points" แต่ค่าที่โชว์จริงคือ
-        # r['max_spread_points'] (spread limit) ไม่ใช่ r ที่เกี่ยวกับ SL เลย
-        # ส่วน SL distance จริงอยู่ที่ order.sl_points (CFG['order']['sl_points'])
-        # ซึ่งไม่เคยถูกโชว์ที่นี่มาก่อน — แก้ label ให้ตรง + เพิ่ม SL points จริง
-        f"Max Spread (pts):\n"
-        f"  XAUUSD: `{r['max_spread_points'].get('XAUUSD', 30)}`\n"
-        f"  EURUSD: `{r['max_spread_points'].get('EURUSD', 15)}`\n"
+        # ✅ CONSOLIDATED (2026-06-22): risk.max_spread_points ถูกลบออก
+        # แสดง spread_filter.limits แทน (หน่วยราคา ไม่ใช่ points แล้ว)
+        f"Max Spread:\n"
+        f"  XAUUSD: `${spread_limits.get('XAUUSD', 0.80):.2f}`\n"
+        f"  EURUSD: `{spread_limits.get('EURUSD', 0.00030):.5f}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"SL Points:\n"
         f"  XAUUSD: `{CFG['order']['sl_points'].get('XAUUSD', 100)}`\n"
@@ -708,7 +712,9 @@ async def cmd_dd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     floating_dd = max(0.0, balance - equity)
     dd_pct      = (floating_dd / balance * 100) if balance > 0 else 0
     today_pnl   = _pnl_summary(days_back=1)['pnl']
-    limit_pct   = CFG.get('risk', {}).get('max_daily_loss_pct', 0.05) * 100
+    # ✅ CONSOLIDATED (2026-06-22): risk.max_daily_loss_pct ถูกลบออก —
+    # อ่านจาก circuit_breaker.daily.loss_pct แทน (หน่วย % เต็มอยู่แล้ว ไม่ต้อง *100)
+    limit_pct   = CFG.get('circuit_breaker', {}).get('daily', {}).get('loss_pct', 5.0)
 
     dd_icon = (
         "🔴" if dd_pct >= limit_pct
@@ -848,43 +854,26 @@ async def cmd_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
 
-    # ✅ FIX: เดิม hardcode session hours เองในไฟล์นี้ (Sydney/Tokyo/London/
-    # New York คงที่ ไม่ปรับ DST เลย) ทำให้ช่วง EST (ฤดูหนาว) NY จริงๆ เปิด
-    # 13:00-22:00 UTC แต่คำสั่งนี้ยังโชว์ 12:00-21:00 ตลอดปีเหมือนเดิม
-    # risk_manager.get_all_session_info() ถูกเขียนมาเพื่อ /session นี้
-    # โดยเฉพาะอยู่แล้ว (ดู docstring ของมัน) แต่ไม่เคยถูกเรียกจากที่นี่เลย —
-    # เปลี่ยนมาใช้แหล่งเดียวกับที่ risk_manager ใช้ตัดสินใจจริง กัน /session
-    # โชว์ข้อมูลไม่ตรงกับพฤติกรรมบอทจริงในช่วง DST เปลี่ยน
-    from bot.risk_manager import RiskManager
-    risk     = RiskManager()
-    sessions = risk.get_all_session_info()
-    by_name  = {s.name: s for s in sessions}
+    hour = datetime.now(timezone.utc).hour
 
-    _PAIRS = {
-        "Sydney"  : "AUD NZD",
-        "Tokyo"   : "JPY AUD CHF",
-        "London"  : "EUR GBP Gold",
-        "New York": "USD Gold",
-    }
+    # (name, emoji, open_utc, close_utc, top_pairs)
+    sessions_def = [
+        ("Sydney",   "🦘", 21,  6, "AUD NZD"),
+        ("Tokyo",    "🗼",  0,  9, "JPY AUD CHF"),
+        ("London",   "🎡",  7, 16, "EUR GBP Gold"),
+        ("New York", "🗽", 12, 21, "USD Gold"),
+    ]
 
     lines = ["🌍 *Market Sessions (UTC)*\n"]
-    for s in sessions:
-        status = "🟢 OPEN " if s.is_open else "⚫ closed"
-        lines.append(f"  {s.emoji} *{s.name}*  {status}")
-        lines.append(f"     {s.range_str} | {_PAIRS.get(s.name, '')}")
+    for name, flag, start, end, pairs in sessions_def:
+        is_open = (hour >= start or hour < end) if start > end else (start <= hour < end)
+        status  = "🟢 OPEN " if is_open else "⚫ closed"
+        lines.append(f"  {flag} *{name}*  {status}")
+        lines.append(f"     {start:02d}:00–{end:02d}:00 | {pairs}")
 
-    # Overlap คำนวณจากเวลาเปิด/ปิดจริง (DST-adjusted) แทนเลข 12/16/0/9 hardcode
-    hour   = datetime.now(timezone.utc).hour
-    london = by_name.get("London")
-    tokyo  = by_name.get("Tokyo")
-    ny     = by_name.get("New York")
-    if (london and ny
-            and london.open_utc <= hour < london.close_utc
-            and ny.open_utc     <= hour < ny.close_utc):
+    if 12 <= hour < 16:
         lines.append(f"\n⚡ *London + NY Overlap* — liquidity สูงสุด (Gold ชอบช่วงนี้)")
-    elif (tokyo and london
-            and tokyo.open_utc  <= hour < tokyo.close_utc
-            and london.open_utc <= hour < london.close_utc):
+    elif 7 <= hour < 9:
         lines.append(f"\n⚡ *Tokyo + London Overlap*")
 
     lines.append(f"\n⏰ `{_now_str()}`")
