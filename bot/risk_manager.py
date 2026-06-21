@@ -216,7 +216,7 @@ class RiskManager:
             executor.send_order(lot=report.lot_size, ...)
 
     Session filter (ใหม่):
-        result = risk.check_session(symbol="XAUUSDm")
+        result = risk.check_session(symbol="XAUUSD")
         if not result.ok:
             continue   # ออกนอก session
         if result.is_overlap:
@@ -897,7 +897,7 @@ class RiskManager:
             SpreadResult — ถ้า ok=False ไม่ควรเปิด order
 
         ตัวอย่าง:
-            result = risk.check_spread("XAUUSDm")
+            result = risk.check_spread("XAUUSD")
             if not result.ok:
                 return  # skip trade
         """
@@ -1434,7 +1434,7 @@ class RiskManager:
         (DST-aware, per-symbol config, overlap detection)
 
         Args:
-            symbol  : "XAUUSDm" ฯลฯ — ใช้ per-symbol override ใน config
+            symbol  : "XAUUSD" ฯลฯ — ใช้ per-symbol override ใน config
             now_utc : inject เวลา (ถ้า None ใช้เวลาจริง) — ช่วย unit test
 
         Returns:
@@ -1444,7 +1444,7 @@ class RiskManager:
               .is_overlap=True → London+NY พร้อมกัน (prime zone สำหรับทอง)
 
         ตัวอย่าง:
-            sess = risk.check_session(symbol="XAUUSDm")
+            sess = risk.check_session(symbol="XAUUSD")
             if not sess.ok:
                 log.debug(f"[{symbol}] {sess}")
                 continue

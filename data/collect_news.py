@@ -41,9 +41,12 @@ def _get_analyzer():
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 # queries เกี่ยวกับ Gold + Forex
+# ✅ FIX: "XAUUSDm" เป็นชื่อ broker (Exness) ไม่มีข่าวไหนใช้คำนี้จริง
+# (สื่อเขียน "gold", "XAU/USD", "XAUUSD" ไม่มี suffix ของ broker) —
+# query เดิมแทบไม่เคย match อะไรเลย เปลี่ยนเป็นคำที่ใช้จริงในข่าว
 _QUERIES = [
     "gold price federal reserve inflation dollar",
-    "XAUUSDm gold trading forex dollar",
+    "XAUUSD gold trading forex dollar",
     "interest rate CPI NFP jobs report",
 ]
 

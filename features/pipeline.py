@@ -173,12 +173,23 @@ def build_features(
     n_raw  = len(df)
 
     # ── Load HTF สำหรับ multi-timeframe ───────────────────────
+    # ✅ FIX CRITICAL: ต้องรัน indicator (EMA/RSI/ADX ฯลฯ) บน HTF ก่อน
+    # ไม่งั้น _select_htf_columns() ใน mtf_and_label.py จะหา column เช่น
+    # 'ema_alignment', 'adx_di_bull' ไม่เจอเลย (เพราะ HTF ยังเป็นแค่ raw
+    # OHLCV) → h1_*/h4_* columns ไม่ถูกสร้างขึ้นมาเลยสักตัว →
+    # htf_conflict กลายเป็น 0 คงที่ตลอด (ดู _add_htf_alignment เงื่อนไข
+    # else) — แปลว่า HTF alignment filter ไม่เคยทำงานจริงตั้งแต่แรก
     htf_dfs = {}
     for tf in CFG['symbols']['htf_timeframes']:   # H1, H4
         try:
-            htf_dfs[tf] = check_data_quality(
+            htf_raw = check_data_quality(
                 load_raw(symbol, tf), f"{symbol}_{tf}"
             )
+            htf_raw = add_trend_features(htf_raw)
+            htf_raw = add_momentum_features(htf_raw)
+            htf_raw = add_volatility_features(htf_raw)
+            htf_raw = add_price_action_features(htf_raw)
+            htf_dfs[tf] = htf_raw
         except FileNotFoundError:
             log.warning(f"  ไม่มี {symbol}_{tf} — ข้าม HTF features")
 
@@ -349,11 +360,23 @@ def build_features_live(
             path = RAW_DIR / f"{symbol}_{tf}.parquet"
             if path.exists():
                 log.debug(f"  HTF {symbol}_{tf}: ไม่มีของสด — fallback อ่านไฟล์")
-                htf_dfs[tf] = pd.read_parquet(path)
+                htf_dfs[tf] = check_data_quality(
+                    pd.read_parquet(path), f"live_{symbol}_{tf}"
+                )
+            else:
+                continue
         else:
             # ✅ ของสดจาก MT5 ยังไม่ผ่าน quality check (เรียงเวลา/ลบ row เสีย)
             # ทำให้เหมือนกับ build_features() ฝั่ง train ที่ check ทุกครั้ง
             htf_dfs[tf] = check_data_quality(htf_dfs[tf], f"live_{symbol}_{tf}")
+
+        # ✅ FIX CRITICAL: เหมือนฝั่ง train — ต้องรัน indicator บน HTF
+        # ก่อน join ไม่งั้น h1_*/h4_* columns ไม่ถูกสร้าง htf_conflict
+        # จะเป็น 0 คงที่ (ดู build_features() comment ด้านบนสำหรับรายละเอียด)
+        htf_dfs[tf] = add_trend_features(htf_dfs[tf])
+        htf_dfs[tf] = add_momentum_features(htf_dfs[tf])
+        htf_dfs[tf] = add_volatility_features(htf_dfs[tf])
+        htf_dfs[tf] = add_price_action_features(htf_dfs[tf])
 
     # 2. โหลด Macro จากไฟล์ที่มีอยู่ (แก้ Bug ข้อมูล Macro หายตอนเทรดจริง)
     macro_dfs = {}

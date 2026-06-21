@@ -1,0 +1,64 @@
+{
+  "symbol": "GBPUSDm",
+  "timeframe": "M15",
+  "n_features": 50,
+  "n_samples": 9995,
+  "trained_at": "2026-06-15T20:24:03.933720+00:00",
+  "model_path": "C:\\Users\\netro\\Desktop\\Goldman_Bot\\models\\saved\\xgb_GBPUSDm.pkl",
+  "is_acceptable": "False",
+  "mean_accuracy": 0.5851,
+  "mean_f1": 0.3999,
+  "std_accuracy": 0.0292,
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2026-01-20 \u2192 2026-02-12",
+      "test_period": "2026-02-13 \u2192 2026-03-10",
+      "accuracy": 0.5664,
+      "f1_macro": 0.3818,
+      "buy_precision": 0.1598,
+      "buy_recall": 0.1789,
+      "n_trades": 244
+    },
+    {
+      "fold": 2,
+      "train_period": "2026-01-20 \u2192 2026-03-09",
+      "test_period": "2026-03-10 \u2192 2026-04-02",
+      "accuracy": 0.5399,
+      "f1_macro": 0.4364,
+      "buy_precision": 0.2108,
+      "buy_recall": 0.4,
+      "n_trades": 408
+    },
+    {
+      "fold": 3,
+      "train_period": "2026-01-20 \u2192 2026-04-01",
+      "test_period": "2026-04-02 \u2192 2026-04-28",
+      "accuracy": 0.5886,
+      "f1_macro": 0.3877,
+      "buy_precision": 0.2791,
+      "buy_recall": 0.0941,
+      "n_trades": 86
+    },
+    {
+      "fold": 4,
+      "train_period": "2026-01-20 \u2192 2026-04-27",
+      "test_period": "2026-04-28 \u2192 2026-05-21",
+      "accuracy": 0.6198,
+      "f1_macro": 0.3687,
+      "buy_precision": 0.2,
+      "buy_recall": 0.0808,
+      "n_trades": 80
+    },
+    {
+      "fold": 5,
+      "train_period": "2026-01-20 \u2192 2026-05-20",
+      "test_period": "2026-05-21 \u2192 2026-06-15",
+      "accuracy": 0.6108,
+      "f1_macro": 0.4249,
+      "buy_precision": 0.3252,
+      "buy_recall": 0.181,
+      "n_trades": 123
+    }
+  ]
+}

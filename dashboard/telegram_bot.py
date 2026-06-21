@@ -57,7 +57,7 @@ from telegram.ext import (
 )
 
 # ใช้ get_config() — merge .env ให้แล้ว credentials อยู่ใน CFG
-from config import get_config
+from config import get_config, resolve_symbol, unresolve_symbol   # ✅ NEW
 CFG = get_config()
 
 log = logging.getLogger("dashboard.telegram_bot")
@@ -157,7 +157,9 @@ def _get_open_positions() -> list:
         return [
             {
                 'ticket': p.ticket,
-                'symbol': p.symbol,
+                # ✅ FIX: p.symbol จาก MT5 เป็นชื่อ broker (XAUUSDm)
+                # แปลงกลับเป็นชื่อกลางก่อนแสดงผล ให้ตรงกับที่อื่นในระบบ
+                'symbol': unresolve_symbol(p.symbol),
                 'type'  : 'BUY' if p.type == 0 else 'SELL',
                 'volume': p.volume,
                 'price' : p.price_open,
@@ -672,10 +674,10 @@ async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Min Confidence: `{s['min_confidence']:.0%}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"SL Points:\n"
-        f"  XAUUSDm: `{r['max_spread_points'].get('XAUUSDm', 30)}`\n"
-        f"  EURUSDm: `{r['max_spread_points'].get('EURUSDm', 15)}`\n"
+        f"  XAUUSD: `{r['max_spread_points'].get('XAUUSD', 30)}`\n"
+        f"  EURUSD: `{r['max_spread_points'].get('EURUSD', 15)}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"Strategy: `v{CFG.get('model', {}).get('active', '?')}`\n"
+        f"Strategy: `{CFG.get('signal', {}).get('active_model', '?')}`\n"
         f"⏰ `{_now_str()}`",
         parse_mode="Markdown",
     )
@@ -774,9 +776,12 @@ async def cmd_gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         import MetaTrader5 as mt5
-        tick = mt5.symbol_info_tick("XAUUSDm")
+        # ✅ FIX: ใช้ resolve_symbol() แทน hardcode "XAUUSDm" — เปลี่ยน
+        # broker แล้วจะยังหา symbol เจอ ไม่ต้องแก้ไฟล์นี้
+        mt5_symbol = resolve_symbol("XAUUSD")
+        tick = mt5.symbol_info_tick(mt5_symbol)
         if tick is None:
-            raise ValueError("XAUUSDm tick not available")
+            raise ValueError(f"{mt5_symbol} tick not available")
 
         spread_usd = round(tick.ask - tick.bid, 2)
         mid        = (tick.bid + tick.ask) / 2
@@ -804,12 +809,17 @@ async def cmd_spread(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
 
-    symbols = CFG.get('trading', {}).get('symbols', ['XAUUSDm'])
+    # ✅ FIX: path เดิม CFG['trading']['symbols'] ไม่มีจริงใน config.yaml
+    # (ไม่มี key 'trading' เลย) → เคย fallback ไป ['XAUUSDm'] ตัวเดียว
+    # เสมอ ไม่สนใจว่า config มี EURUSD/GBPUSD ด้วย แก้ path ให้ถูก
+    symbols = CFG.get('symbols', {}).get('active', ['XAUUSD'])
     try:
         import MetaTrader5 as mt5
         lines = ["📊 *Current Spreads*\n"]
         for sym in symbols:
-            tick = mt5.symbol_info_tick(sym)
+            # ✅ FIX: ต้อง resolve เป็นชื่อ broker ก่อนถาม MT5 เสมอ
+            mt5_symbol = resolve_symbol(sym)
+            tick = mt5.symbol_info_tick(mt5_symbol)
             if tick:
                 spread = round(tick.ask - tick.bid, 5)
                 lines.append(f"  `{sym:<10}` spread = `{spread:.5f}`")

@@ -39,7 +39,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from config import get_config
+from config import get_config, resolve_symbol   # ✅ NEW: broker resolver
 
 CFG = get_config()
 
@@ -273,7 +273,12 @@ class RegimeDetector:
             }
             tf = tf_map.get(timeframe, mt5.TIMEFRAME_H4)
 
-            rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
+            # ✅ FIX CRITICAL: symbol เป็นชื่อกลาง (XAUUSD) ต้อง resolve
+            # เป็นชื่อ broker (XAUUSDm) ก่อนเรียก MT5 — เดิมส่ง symbol
+            # ตรงๆ ทำให้ MT5 หาไม่เจอ rates=None → regime ออกมา
+            # "uncertain conf=0.00" ทุกครั้ง (ไม่ error ให้เห็นเลยด้วย)
+            mt5_symbol = resolve_symbol(symbol)
+            rates = mt5.copy_rates_from_pos(mt5_symbol, tf, 0, bars)
             if rates is None or len(rates) == 0:
                 return RegimeState(symbol=symbol, regime="uncertain",
                                    confidence=0.0)
@@ -668,7 +673,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Market Regime Detection")
     parser.add_argument("--symbols",   nargs="+",
-                        default=CFG.get("trading", {}).get("symbols", ["XAUUSDm"]))
+                        default=CFG.get("symbols", {}).get("active", ["XAUUSD"]))
     parser.add_argument("--timeframe", default="H4",
                         choices=["M15", "H1", "H4", "D1"])
     parser.add_argument("--source",    default="mt5",

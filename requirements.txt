@@ -17,7 +17,12 @@ yfinance>=0.2.50            # ดึงข้อมูลราคาย้อ�
 ta>=0.11.0                  # คำนวณ RSI, MACD, Bollinger Bands, EMA อัตโนมัติโดยใช้ Pandas
 
 # ── 4. MACHINE LEARNING (ระบบปัญญาประดิษฐ์ความเร็วสูง) ───────────────
-scikit-learn>=1.5.2         # เตรียมข้อมูล (Scaling), แบ่งข้อมูล Train/Test และทำโมเดลพื้นฐาน
+scikit-learn==1.9.0         # ✅ FIX: pin เวอร์ชันตายตัว (เดิม >=1.5.2 ไม่ปิดบน
+                             # → Docker เทรนได้ 1.7.2 แต่ Windows venv ลง 1.9.0
+                             # ทำให้เกิด InconsistentVersionWarning ตอนโหลดโมเดล
+                             # (LabelEncoder/StandardScaler unpickle ข้าม version)
+                             # ตั้งให้ตรงกับที่ Windows venv รันอยู่จริงตอนนี้
+                             # ต้องติดตั้งเบอร์นี้ใน Docker training image ด้วย
 xgboost>=2.1.1              # โมเดลคณิตศาสตร์แบบต้นไม้ (Tree) ความแม่นยำสูง ยอดฮิตของสายควอนท์
 lightgbm>=4.5.0             # โมเดลตระกูล Tree ของ Microsoft รันไวมาก กินแรมดิก เหมาะกับ VPS
 joblib>=1.4.2               # เซฟไฟล์โมเดล AI (.pkl) ที่เทรนเสร็จแล้วเก็บไว้ดึงมา Predict ซ้ำ

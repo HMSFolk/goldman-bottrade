@@ -193,7 +193,7 @@ echo.
 echo.
 echo  Options:
 echo   1. Train all symbols (default)
-echo   2. Train XAUUSDm only
+echo   2. Train XAUUSD only
 echo   3. Train with Hyperopt (slower but better)
 echo.
 set /p TCHOICE=  Choose (1-3): 
@@ -202,8 +202,8 @@ if "%TCHOICE%"=="1" (
     "%PYTHON%" models\train_lgbm.py
 )
 if "%TCHOICE%"=="2" (
-    "%PYTHON%" models\train_xgb.py  --symbols XAUUSDm
-    "%PYTHON%" models\train_lgbm.py --symbols XAUUSDm
+    "%PYTHON%" models\train_xgb.py  --symbols XAUUSD
+    "%PYTHON%" models\train_lgbm.py --symbols XAUUSD
 )
 if "%TCHOICE%"=="3" (
     "%PYTHON%" models\train_xgb.py  --hyperopt
@@ -222,7 +222,10 @@ echo  Training LSTM + Attention
 echo  (takes 1-3 hours)
 echo.
 echo.
-"%PYTHON%" models\train_lstm.py --symbols XAUUSDm
+:: ✅ FIX: เดิม hardcode --symbols XAUUSDm ทำให้เมนูนี้เทรนแค่ XAU
+:: ตลอด ไม่เคยเทรน EUR/GBP เลย — ไม่ใส่ --symbols เพื่อให้ default
+:: เป็นทุก symbol ใน config.yaml (XAUUSD/EURUSD/GBPUSD) เหมือนเมนู 6.1
+"%PYTHON%" models\train_lstm.py
 goto DONE
 
 :: ===========================================================
@@ -323,7 +326,7 @@ echo.
 echo  Model Files Status
 echo.
 echo.
-"%PYTHON%" -c "from models.manage_models import print_model_table, verify_model; print_model_table(); print('\nVerifying XAUUSDm models...'); verify_model('XAUUSDm')"
+"%PYTHON%" -c "from models.manage_models import print_model_table, verify_model; print_model_table(); print('\nVerifying XAUUSD models...'); verify_model('XAUUSD')"
 goto DONE
 
 :: ===========================================================

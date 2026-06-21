@@ -208,7 +208,16 @@ def _add_ichimoku(df: pd.DataFrame) -> pd.DataFrame:
     df['ichi_b']     = ((h.rolling(52, min_periods=1).max() + l.rolling(52, min_periods=1).min()) / 2).shift(26)
 
     # Chikou Span — ราคาย้อนหลัง 26
-    df['ichi_chikou']= c.shift(-26)
+    # ⚠️ ไม่สร้างเป็น feature column ตรงๆ — shift(-26) คือ look-ahead bias
+    # ของจริง (row ที่ i จะมีค่า = close ของ row i+26 ซึ่งโมเดลไม่มีทาง
+    # รู้ล่วงหน้าตอน predict จริง) แต่ที่ผ่านมาคอลัมน์นี้ไม่เคยถูกกันออก
+    # จาก feature list เลย (ไม่อยู่ใน NON_FEATURE_COLS ของ pipeline.py)
+    # → โมเดลถูกเทรนด้วยราคาในอนาคตรั่วเข้ามาทุกแถว ยกเว้น 26 แถวสุดท้าย
+    # ของแต่ละช่วงข้อมูล ผลคือ backtest/training metrics อาจดีเกินจริง
+    # ทางเลือก: ถ้าต้องการใช้ Chikou จริงๆ (ดู cross กับราคาในอดีต) ต้อง
+    # เทียบ close ปัจจุบันกับ close.shift(+26) (อดีต) ไม่ใช่ shift(-26)
+    # ในที่นี้ไม่ได้ใช้ chikou ต่อในสัญญาณไหนเลย จึงตัดทิ้งไปก่อน
+    # df['ichi_chikou'] = c.shift(-26)   # ❌ ปิดไว้ — look-ahead bias
 
     # ── Ichimoku Signals ───────────────────────────────────────
 

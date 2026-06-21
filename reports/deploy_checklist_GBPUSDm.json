@@ -1,0 +1,38 @@
+{
+  "models_exist": {
+    "pass": true,
+    "note": "XGB + LGBM \u0e15\u0e49\u0e2d\u0e07\u0e21\u0e35\u0e2d\u0e22\u0e48\u0e32\u0e07\u0e19\u0e49\u0e2d\u0e22",
+    "detail": "{'xgb': True, 'lgbm': True, 'lstm': True}"
+  },
+  "training_metrics": {
+    "pass": false,
+    "note": "acc\u226550% \u0e41\u0e25\u0e30 f1\u226540%",
+    "detail": "{'accuracy': 0.5851, 'f1': 0.3999}"
+  },
+  "backtest": {
+    "pass": true,
+    "note": "sharpe\u22651 | dd\u226420% | wr\u226545% | pf\u22651.3 | trades\u226550",
+    "detail": "{'return': 0.6243178578194221, 'sharpe': 20.457721008859703, 'max_dd': 0.017762655279376118, 'win_rate': 76.6323024054983, 'pf': 8.480039847093499, 'trades': 291}"
+  },
+  "walk_forward": {
+    "pass": "True",
+    "note": "sharpe\u22650.8 | consistency\u226560%",
+    "detail": "{'mean_sharpe': 17.097, 'consistency': '100%', 'mean_return': np.float64(0.08)}"
+  },
+  "overfit_check": {
+    "pass": true,
+    "note": "gap < 30% (train vs test)",
+    "detail": "{'train_return': 0.5511787453709664, 'test_return': 0.07117512858901308, 'gap': 0.48000361678195336}"
+  },
+  "risk_params": {
+    "pass": true,
+    "note": "risk\u22642% | daily_loss\u226410% | max_trades\u22645",
+    "detail": "{'risk_per_trade': 0.01, 'max_daily_loss': 0.1, 'max_open_trades': 5}"
+  },
+  "env_config": {
+    "pass": true,
+    "note": ".env \u0e15\u0e49\u0e2d\u0e07\u0e21\u0e35\u0e04\u0e23\u0e1a",
+    "detail": "{'MT5_LOGIN': True, 'MT5_PASSWORD': True, 'MT5_SERVER': True}"
+  },
+  "generated_at": "2026-06-15T22:46:25.658163+00:00"
+}
