@@ -237,9 +237,15 @@ class RiskManager:
         # ดึงค่าจาก config
         r = CFG['risk']
         self.risk_per_trade    = r['risk_per_trade']       # 0.01 = 1%
-        self.max_daily_loss    = r['max_daily_loss_pct']   # 0.05 = 5%
+        # ✅ CONSOLIDATED (2026-06-22): เดิมมี max_daily_loss (จาก
+        # risk.max_daily_loss_pct, balance-snapshot) คู่ขนานกับ circuit
+        # breaker (circuit_breaker.daily.loss_pct, deal-history P&L) — ตอนนี้
+        # รวมเหลือ circuit breaker เป็นจุดเดียว ดู _cb_check_daily_loss()
         self.max_open_trades   = r['max_open_trades']      # 3
-        self.max_spread        = r['max_spread_points']    # dict
+        # ✅ CONSOLIDATED (2026-06-22): เดิมมี max_spread (จาก
+        # risk.max_spread_points, points) คู่ขนานกับ check_spread() public
+        # (จาก spread_filter.limits, price) — ตอนนี้รวมเหลือ check_spread()
+        # เป็นจุดเดียว ดู _get_spread_limit()
         self.min_lot           = r['min_lot']              # 0.01
         self.max_lot           = r['max_lot']              # 0.50
 
@@ -264,7 +270,6 @@ class RiskManager:
         log.info(
             f"RiskManager initialized:\n"
             f"  risk_per_trade   = {self.risk_per_trade:.1%}\n"
-            f"  max_daily_loss   = {self.max_daily_loss:.1%}\n"
             f"  max_open_trades  = {self.max_open_trades}\n"
             f"  min_lot / max_lot= {self.min_lot} / {self.max_lot}"
         )
@@ -301,10 +306,14 @@ class RiskManager:
         self._update_daily_tracking(balance)
 
         # ── 2. ตรวจทีละข้อ ───────────────────────────────────
+        # ✅ CONSOLIDATED (2026-06-22): เอา _check_daily_loss() กับ
+        # _check_spread() ออกจาก list นี้แล้ว — ทั้งคู่เป็นด่านที่ "ซ้ำ" กับ
+        # อีกกลไกที่ใช้ config คนละชุด (circuit_breaker.daily / spread_filter
+        # ตามลำดับ) ตอนนี้เหลือกลไกเดียวต่อเรื่อง:
+        #   daily loss → check_circuit_breaker() (เรียกจาก main.py ทุก tick)
+        #   spread     → check_spread() public (เรียกจาก executor Step 4)
         checks = [
-            self._check_daily_loss(balance),
             self._check_max_open_trades(symbol),
-            self._check_spread(symbol),
             self._check_session(symbol),
             self._check_margin_level(margin_level),
             self._check_equity_drawdown(balance, equity),
@@ -457,62 +466,6 @@ class RiskManager:
     # ══════════════════════════════════════════════════════════
     # Individual Checks
     # ══════════════════════════════════════════════════════════
-    def _check_daily_loss(
-        self, current_balance: float ) -> RiskCheckResult:
-        """
-        หยุดเทรดถ้าขาดทุนเกิน max_daily_loss% ของ balance เริ่มวัน
-
-        เหตุผล:
-        ป้องกัน revenge trading — ยิ่งเสียยิ่งอยากได้คืน
-        จนเสียหมดพอร์ตได้ใน 1 วัน
-        """
-        if self._daily_start_balance is None:
-            self._daily_start_balance = current_balance
-
-        start = self._daily_start_balance
-
-        # ✅ FIX BUG-2: ป้องกัน ZeroDivisionError ถ้า start=0
-        if start <= 0:
-            log.warning("daily_start_balance = 0 — skip daily loss check")
-            return RiskCheckResult(
-                passed = True,
-                check  = "daily_loss",
-                reason = "start_balance=0 (skip)",
-            )
-
-        # คำนวณ loss %
-        loss_pct = (start - current_balance) / start
-
-        limit   = self.max_daily_loss
-
-        if loss_pct >= limit:
-            return RiskCheckResult(
-                passed = False,
-                check  = "daily_loss",
-                reason = (
-                    f"เสียวันนี้ {loss_pct:.1%} ≥ "
-                    f"limit {limit:.1%} "
-                    f"(start=${start:.0f} "
-                    f"now=${current_balance:.0f})"
-                ),
-                value  = loss_pct,
-                limit  = limit,
-            )
-
-        # เตือนถ้าใกล้ limit
-        if loss_pct >= limit * 0.80:
-            log.warning(
-                f"⚠️ Daily loss {loss_pct:.1%} "
-                f"ใกล้ limit {limit:.1%}"
-            )
-
-        return RiskCheckResult(
-            passed = True,
-            check  = "daily_loss",
-            value  = loss_pct,
-            limit  = limit,
-        )
-
     def _check_max_open_trades(
         self, symbol: str
     ) -> RiskCheckResult:
@@ -555,59 +508,6 @@ class RiskManager:
             passed = True,
             check  = "max_open_trades",
             value  = n_open,
-            limit  = limit,
-        )
-
-    def _check_spread(self, symbol: str) -> RiskCheckResult:
-        """
-        ตรวจ spread ปัจจุบัน
-
-        เหตุผล:
-        Spread กว้าง = เสียค่าธรรมเนียมมาก
-        เกิดตอนข่าว, ตลาดเปิด/ปิด, liquidity ต่ำ
-        XAUUSD ปกติ 20-30 points — ถ้า > 60 อย่าเทรด
-        """
-        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนเรียก MT5
-        broker_symbol = resolve_symbol(symbol)
-        tick  = mt5.symbol_info_tick(broker_symbol)
-        info  = mt5.symbol_info(broker_symbol)
-
-        if tick is None or info is None:
-            return RiskCheckResult(
-                passed = False,
-                check  = "spread",
-                reason = f"ไม่มีข้อมูล {symbol}",
-            )
-
-        # คำนวณ spread เป็น points
-        spread_pts = round((tick.ask - tick.bid) / info.point)
-
-        # ดึง limit จาก config (แต่ละ symbol ต่างกัน)
-        max_spread_cfg = CFG['risk']['max_spread_points']
-        if isinstance(max_spread_cfg, dict):
-            limit = max_spread_cfg.get(
-                symbol,
-                max_spread_cfg.get('default', 30)
-            )
-        else:
-            limit = int(max_spread_cfg)
-
-        if spread_pts > limit:
-            return RiskCheckResult(
-                passed = False,
-                check  = "spread",
-                reason = (
-                    f"spread={spread_pts}pts > "
-                    f"limit={limit}pts"
-                ),
-                value  = spread_pts,
-                limit  = limit,
-            )
-
-        return RiskCheckResult(
-            passed = True,
-            check  = "spread",
-            value  = spread_pts,
             limit  = limit,
         )
 
@@ -871,20 +771,10 @@ class RiskManager:
     # ══════════════════════════════════════════════════════════
     # Utility
     # ══════════════════════════════════════════════════════════
-    def check_daily_loss(self, balance: float) -> bool:
-        """
-        Shortcut ตรวจ daily loss เดียว
-        ใช้ใน bot/main.py ก่อนทุก tick
-        """
-        if self._daily_start_balance is None:
-            self._daily_start_balance = balance
-            return True
-
-        loss_pct = (
-            self._daily_start_balance - balance
-        ) / self._daily_start_balance
-
-        return loss_pct < self.max_daily_loss
+    # ✅ CONSOLIDATED (2026-06-22): check_daily_loss() (balance-snapshot
+    # shortcut เดิมที่ main.py เรียกทุก tick) ถูกลบออก — ซ้ำกับ
+    # check_circuit_breaker() → _cb_check_daily_loss() (deal-history P&L)
+    # ซึ่งเป็น single source of truth ของ daily-loss แล้วตอนนี้
 
     # ══════════════════════════════════════════════════════════
     # Spread Filter
@@ -1408,17 +1298,10 @@ class RiskManager:
         except Exception as e:
             log.error(f"CB: cannot save state: {e}")
 
-    def get_risk_summary(self) -> dict:
-        """สรุปสถานะ risk ปัจจุบัน"""
-        return {
-            'daily_start_balance': self._daily_start_balance,
-            'daily_start_date'   : self._daily_start_date,
-            'trades_today'       : self._trades_today,
-            'pnl_today'          : self._pnl_today,
-            'risk_per_trade'     : self.risk_per_trade,
-            'max_daily_loss'     : self.max_daily_loss,
-            'max_open_trades'    : self.max_open_trades,
-        }
+    # ✅ CONSOLIDATED (2026-06-22): get_risk_summary() ถูกลบออก —
+    # ไม่เคยถูกเรียกใช้จากที่ไหนเลย (ยืนยันจาก grep ทั้ง repo) และอ้างถึง
+    # self.max_daily_loss / self._daily_start_balance ที่ถูก deprecate แล้ว
+    # ถ้าต้องการสรุปสถานะ risk ให้ใช้ get_circuit_breaker_status() แทน
 
     # ══════════════════════════════════════════════════════════
     # [4] NEW — Session Filter (Public API)

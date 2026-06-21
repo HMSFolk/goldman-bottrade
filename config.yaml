@@ -1,12 +1,16 @@
-# TRADING BOT — MASTER CONFIG  (Production-ready)
+# ============================================================
+# TRADING BOT — MASTER CONFIG (Production-ready)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
 # ============================================================
+
 # ── 0. BROKER ─────────────────────────────────────────────────
-# เปลี่ยน broker → แก้ "name" บรรทัดเดียว (ดู symbol_map ข้อ 26)
+# Broker ที่ใช้อยู่ตอนนี้ — เปลี่ยน broker ใหม่แก้แค่บรรทัดนี้
+# (ต้องมี mapping อยู่ใน symbol_map ข้อ 26 ด้วย)
 broker:
   name: "exness"
 
 # ── 1. MT5 CONNECTION ───────────────────────────────────────────
+# ตั้งค่าการเชื่อมต่อ/reconnect กับ MetaTrader5
 mt5:
   timeout_sec: 30
   max_reconnect_attempts: 5
@@ -14,84 +18,85 @@ mt5:
   reconnect:
     enabled              : true
     max_retries          : 10
-    base_sleep_sec       : 5
-    max_sleep_sec        : 300
+    base_sleep_sec       : 5     # รอกี่วินาทีก่อนลองใหม่ครั้งแรก
+    max_sleep_sec        : 300   # รอนานสุดกี่วินาทีระหว่างลองใหม่
     health_check_interval: 60
-    alert_after_retries  : 3
+    alert_after_retries  : 3     # ลองครบกี่ครั้งแล้วค่อยแจ้งเตือน
     notify_telegram      : true
 
 # ── 2. SYMBOLS ───────────────────────────────────────────────────
-# ชื่อกลาง (ไม่มี m) — broker จริงถูก resolve ผ่าน symbol_map (ข้อ 26)
+# คู่เงินที่บอทเทรด — ใช้ชื่อกลาง (ไม่มี m) ทุกที่ในระบบ
+# ชื่อจริงของแต่ละ broker ถูกแปลงผ่าน symbol_map (ข้อ 26) อัตโนมัติ
 symbols:
   active:
     - "XAUUSD"
     - "EURUSD"
     - "GBPUSD"
-  primary_timeframe: "M15"
-  htf_timeframes:
+  primary_timeframe: "M15"   # timeframe หลักที่ใช้ตัดสินใจเทรด
+  htf_timeframes:            # timeframe สูงกว่า ใช้เช็คเทรนด์ใหญ่ (HTF filter)
     - "H1"
     - "H4"
 
 # ── 3. RISK MANAGEMENT ────────────────────────────────────────────
-# Daily-loss limit และ spread limit ย้ายไปอยู่จุดเดียวแล้ว:
-#   daily loss → circuit_breaker.daily.loss_pct (ข้อ 16)
-#   spread     → spread_filter.limits (ข้อ 15)
+# กฎคุมความเสี่ยงต่อไม้/ต่อวัน
+# (limit ขาดทุนรายวัน → ดูข้อ 16, limit spread → ดูข้อ 15)
 risk:
-  risk_per_trade           : 0.03   # 3% balance ต่อ trade
-  max_open_trades          : 8
+  risk_per_trade           : 0.03   # เสี่ยงกี่% ของ balance ต่อไม้
+  max_open_trades          : 8      # เปิดพร้อมกันได้สูงสุดกี่ไม้ (รวมทุก symbol)
   min_lot                  : 0.01
   max_lot                  : 0.50
-  max_positions_per_symbol : 2      # อนุญาต 2 position/symbol
-  add_same_direction_only  : true   # ห้ามเปิดสวนทาง
-  add_position_min_conf    : 0.52   # conf ขั้นต่ำเพื่อเพิ่ม position ที่ 2
-  add_position_min_agree   : 2      # >= 2/3 โมเดลต้องเห็นตรงกันจึงเพิ่ม position
+  max_positions_per_symbol : 2      # เปิดซ้ำ symbol เดียวกันได้สูงสุดกี่ position
+  add_same_direction_only  : true   # เพิ่ม position ที่ 2 ได้เฉพาะทิศทางเดิม (ห้ามสวนทาง)
+  add_position_min_conf    : 0.52   # confidence ขั้นต่ำที่ต้องมีก่อนเพิ่ม position ที่ 2
+  add_position_min_agree   : 2      # ต้องมี >= 2/3 โมเดลเห็นตรงกันก่อนเพิ่ม position
 
 # ── 4. ORDER SETTINGS ─────────────────────────────────────────────
+# ระยะ SL/TP และพฤติกรรมตอนส่ง order จริง
 order:
-  sl_points:
+  sl_points:                 # ระยะ Stop Loss (หน่วย points) ต่อ symbol
     XAUUSD: 100
     EURUSD:  80
     GBPUSD:  90
     default:  90
-  tp_ratio: 0.7              # TP = SL × 0.7 (เก็บกำไรเร็วขึ้น)
-  tp_by_regime:
+  tp_ratio: 0.7               # TP = SL × ค่านี้ (ค่าพื้นฐาน ก่อนถูกปรับโดย tp_by_regime)
+  tp_by_regime:                # ปรับ TP ตาม regime ที่ตรวจเจอ
     trending_up  : 1.5
     trending_down: 1.5
     uncertain    : 0.7
     ranging      : 0.6
     volatile     : 0.5
   use_trailing_stop    : true
-  trailing_start_pct   : 0.003
-  trailing_distance_pct: 0.002
-  max_slippage         : 10
-  magic_number         : 20250101
+  trailing_start_pct   : 0.003   # กำไรกี่% ก่อนเริ่ม trailing
+  trailing_distance_pct: 0.002   # ระยะห่างของ trailing stop จากราคา
+  max_slippage         : 10      # slippage ที่ยอมรับได้ (points)
+  magic_number          : 20250101   # เลขระบุ order ของบอทนี้ (กันชนกับ EA อื่น)
   order_comment        : "aurum_bot_v1"
 
 # ── 5. SIGNAL & MODEL ─────────────────────────────────────────────
+# threshold การตัดสินใจของโมเดล
 signal:
-  active_model                      : "ensemble"
-  min_confidence                    : 0.55   # threshold global (symbol_settings override ได้)
-  lookback_bars                     : 200
-  cooldown_min                      : 10     # พักกี่นาทีหลังเทรด
-  min_directional_prob              : 0.28   # BUY/SELL prob ขั้นต่ำก่อน directional override
-  min_agree_for_directional_override: 2      # >= 2/3 โมเดลเห็นตรงกันจึง override
+  active_model                      : "ensemble"   # rule_based | xgb | lgbm | lstm | ensemble
+  min_confidence                    : 0.55     # confidence ขั้นต่ำที่จะเปิดไม้ (override ได้ที่ symbol_settings)
+  lookback_bars                     : 200      # จำนวนแท่งย้อนหลังที่ใช้คำนวณ feature
+  cooldown_min                      : 10       # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
+  min_directional_prob              : 0.28     # prob ขั้นต่ำของ BUY/SELL ก่อนพิจารณา override ทิศทาง
+  min_agree_for_directional_override: 2        # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศทางได้
 
 # ── 6. TRADING SESSION (ด่านสำรอง) ────────────────────────────────
-# ด่านหลักของ session คือ session_filter (ข้อ 21, DST-aware) — อันนี้เป็น
-# ด่านสำรองชั้นที่ 2 ที่ executor เช็คอีกรอบก่อนส่ง order จริง
-# ⚠️ end ต้องครอบคลุม NY session close ของ session_filter เสมอ (สูงสุด
-# 22:00 UTC ช่วง EST) ไม่งั้น order จะถูกบล็อกผิดช่วงปลาย NY session
+# ด่านเช็คเวลาแบบง่าย เป็นด่านที่ 2 รองจาก session_filter (ข้อ 21)
+# ตอนนี้เทรดได้ทุก session (ดูข้อ 21) จึงเปิดกว้างทั้งวัน ไม่ใช่ตัวจำกัดจริง
 session:
   allowed_hours_utc:
-    start: 7
-    end: 22
+    start: 0
+    end: 24
   skip_weekends     : true
-  news_blackout_min : 20
+  news_blackout_min : 20      # บล็อกกี่นาทีก่อน/หลังข่าวสำคัญ
   market_holidays:
     - "2026-01-01"
     - "2026-12-25"
 
 # ── 7. DATA COLLECTION ────────────────────────────────────────────
+# จำนวนแท่งราคาที่ดึงเก็บ และ symbol ฝั่ง macro ที่ใช้เป็น feature เสริม
 data:
   history_bars:
     M15: 10000
@@ -106,6 +111,7 @@ data:
   update_interval_hours: 24
 
 # ── 8. MODEL TRAINING ─────────────────────────────────────────────
+# พารามิเตอร์ตอน train โมเดล (ใช้โดย scripts/retrain_all.py)
 training:
   retrain_every_days: 30
   train_pct: 0.70
@@ -114,8 +120,8 @@ training:
   label_method  : "triple_barrier"
   forward_bars  : 4
   min_return_pct: 0.0015
-  wf_splits     : 5
-  wf_gap_bars   : 96
+  wf_splits     : 5       # walk-forward กี่ splits
+  wf_gap_bars   : 96      # เว้นระยะกี่แท่งระหว่าง train/test กัน look-ahead
   xgb_params:
     n_estimators    : 500
     learning_rate   : 0.03
@@ -131,6 +137,7 @@ training:
     num_boost_round : 1000
 
 # ── 9. PATHS ───────────────────────────────────────────────────────
+# โฟลเดอร์ที่บอทใช้อ่าน/เขียนไฟล์
 paths:
   data_raw      : "data/raw"
   data_processed: "data/processed"
@@ -141,12 +148,14 @@ paths:
   flags         : "flags"
 
 # ── 10. DASHBOARD ──────────────────────────────────────────────────
+# ตั้งค่า Streamlit dashboard
 dashboard:
   port               : 8501
   refresh_sec        : 30
   recent_trades_count: 50
 
 # ── 11. NOTIFICATIONS ──────────────────────────────────────────────
+# แจ้งเตือนผ่าน Telegram ตอนไหนบ้าง
 notifications:
   telegram_enabled: true
   notify_on:
@@ -156,7 +165,7 @@ notifications:
     daily_summary : true
     bot_restart   : true
     daily_loss_hit: true
-  daily_summary_hour: 21
+  daily_summary_hour: 21   # ส่งสรุปประจำวันกี่โมง UTC
 
 # ── 12. LOGGING ─────────────────────────────────────────────────────
 logging:
@@ -165,56 +174,60 @@ logging:
   backup_count    : 5
 
 # ── 13. NEWS FILTER ──────────────────────────────────────────────────
+# บล็อกเทรดช่วงข่าวสำคัญ (high impact)
 news_filter:
   enabled         : true
-  buffer_minutes  : 15      # บล็อก 15 นาทีก่อน/หลังข่าว HIGH impact
+  buffer_minutes  : 15      # บล็อกกี่นาทีก่อน/หลังข่าว
   high_impact_only: true
-  fail_open       : true    # ถ้า API ล้มเหลว → เทรดต่อ
+  fail_open       : true    # ถ้าดึงข่าวไม่ได้ → ปล่อยให้เทรดต่อ (ไม่บล็อก)
   cache_hours     : 6
 
 # ── 14. API KEYS ──────────────────────────────────────────────────────
 api_keys:
   finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0"
-  # Finnhub free plan ไม่รองรับ economic calendar — บอทใช้ ForexFactory
+  # Finnhub free plan ไม่รองรับ economic calendar — บอทจะ fallback ไป
+  # ดึงจาก ForexFactory แทนอัตโนมัติ (ฟรี ไม่ต้อง key) ไม่ใช่บั๊ก
 
 # ── 15. SPREAD FILTER (จุดเดียวของระบบ) ──────────────────────────────
-# executor.send_order() เช็ค spread ผ่าน check_spread() ที่นี่ที่เดียว
+# spread กว้างเกินนี้ → ไม่ส่ง order (กันโดน slippage ช่วงข่าว/สภาพคล่องต่ำ)
 spread_filter:
   enabled  : true
-  fail_open: true
-  warn_pct : 70
+  fail_open: true   # ถ้าเช็ค spread ไม่ได้ → ปล่อยให้เทรดต่อ
+  warn_pct : 70      # spread ใกล้ limit กี่% ถึงจะ log เตือน
   limits:
     XAUUSD : 0.80
     EURUSD : 0.00030
     GBPUSD : 0.00050
     default: 0.00100
 
-# ── 16. CIRCUIT BREAKER ──────────────────────────────────────────────
+# ── 16. CIRCUIT BREAKER (จุดเดียวของระบบสำหรับ daily-loss) ───────────
+# หยุดเทรดอัตโนมัติเมื่อขาดทุนเกิน threshold แต่ละแบบ
 circuit_breaker:
   enabled        : true
   notify_telegram: true
   daily:
-    enabled    : true       # ← daily-loss limit จุดเดียวของระบบ
-    loss_pct   : 5.0        # หยุดถ้าขาดทุน 5%/วัน
-    loss_usd   : null
-    auto_resume: true
+    enabled    : true
+    loss_pct   : 5.0      # หยุดถ้าขาดทุน 5% ของ balance ภายในวันเดียว
+    loss_usd   : null     # ใส่จำนวนเงิน USD แทน % ได้ถ้าต้องการ
+    auto_resume: true     # หยุดแล้วกลับมาเทรดเองอัตโนมัติเมื่อพ้นช่วง
   weekly:
     enabled : true
-    loss_pct: 10.0        # หยุดถ้าขาดทุนสะสม > 8%/สัปดาห์
+    loss_pct: 10.0        # หยุดถ้าขาดทุนสะสมเกิน 10% ภายในสัปดาห์
   consecutive_losses:
     enabled       : true
-    count         : 5    # แพ้ 3 ครั้งติด → หยุด
-    cooldown_hours: 1
+    count         : 5     # แพ้ติดกัน 5 ไม้ → หยุดพัก
+    cooldown_hours: 1      # พักกี่ชั่วโมงก่อนเทรดต่อ
   floating_dd:
     enabled : true
-    max_pct : 5.0
+    max_pct : 5.0      # floating drawdown (ขาดทุนที่ยังไม่ปิด) เกินนี้ → หยุด
     warn_pct: 70
 
 # ── 17. REGIME DETECTION ─────────────────────────────────────────────
+# พารามิเตอร์ตรวจจับสภาพตลาด (เทรนด์/sideway/ผันผวน)
 regime_detection:
   adx_period       : 14
-  adx_trend_thresh : 25
-  adx_range_thresh : 20
+  adx_trend_thresh : 25     # ADX สูงกว่านี้ = ถือว่าเป็นเทรนด์
+  adx_range_thresh : 20     # ADX ต่ำกว่านี้ = ถือว่า sideway
   hurst_trend      : 0.55
   hurst_range      : 0.45
   atr_lookback     : 100
@@ -225,6 +238,7 @@ regime_detection:
   cache_ttl_minutes: 15
 
 # ── 18. REGIME WEIGHTS ───────────────────────────────────────────────
+# น้ำหนักของแต่ละโมเดลใน ensemble ตาม regime ที่ตรวจเจอ
 regime_weights:
   trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
   trending_down: {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
@@ -233,45 +247,51 @@ regime_weights:
   uncertain    : {lgbm: 0.30, xgb: 0.25, lstm: 0.20, rule: 0.25}
 
 # ── 19. STRATEGY FILTERS ─────────────────────────────────────────────
+# เปิด/ปิด filter แต่ละตัวก่อนยืนยันสัญญาณเทรด
 strategy_filters:
   use_squeeze_filter   : false
   use_htf_filter       : false
   use_atr_low_filter   : false
-  use_regime_filter    : true    # block counter-trend
+  use_regime_filter    : true    # บล็อกเทรดสวนเทรนด์ใหญ่
   use_pattern_filter   : false
   use_structure_filter : false
   use_final_conf_check : false
 
 # ── 20. REGIME FILTER ────────────────────────────────────────────────
+# กฎละเอียดของ use_regime_filter (ข้อ 19)
 regime_filter:
-  block_counter_trend: true   # BUY ใน trending_down = block
-  min_regime_conf    : 0.40   # ต้องมั่นใจ regime >= 40%
+  block_counter_trend: true   # ตัวอย่าง: BUY ตอน regime=trending_down → บล็อก
+  min_regime_conf    : 0.40   # ต้องมั่นใจ regime >= 40% ถึงจะใช้ filter นี้ตัดสิน
   blocked_combos:
     - {regime: trending_down, signal: BUY}
     - {regime: trending_up,   signal: SELL}
 
 # ── 21. SESSION FILTER (ด่านหลัก, DST-aware) ─────────────────────────
+# ด่านหลักที่ตัดสินว่าตอนนี้เทรดได้ไหม — เช็คก่อนสร้าง signal ทุกครั้ง
+# ปรับเวลา New York อัตโนมัติตาม DST (EDT/EST)
 session_filter:
   enabled     : true
   skip_weekend: true
   use_dst     : true
   overlap_only: false
-  allowed_sessions:
+  allowed_sessions:        # session ทั้งหมดที่ระบบรู้จัก
     - London    # 07:00-16:00 UTC
     - New York  # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
-    # - Tokyo   # ไม่ใช้ เพราะทุก symbol ใช้ symbol_sessions แทน
-  symbol_sessions:
-    XAUUSD: ["London", "New York"]
-    EURUSD: ["London", "New York"]
-    GBPUSD: ["London", "New York"]
-  friday_close_hour: 21
-  monday_open_hour :  7
+    - Tokyo     # 00:00-09:00 UTC
+    - Sydney    # 21:00-06:00 UTC
+  symbol_sessions:          # session ที่อนุญาตให้เทรดได้ ต่อ symbol
+    XAUUSD: ["Sydney", "Tokyo", "London", "New York"]
+    EURUSD: ["Sydney", "Tokyo", "London", "New York"]
+    GBPUSD: ["Sydney", "Tokyo", "London", "New York"]
+  friday_close_hour: 21    # ตลาดปิดวันศุกร์กี่โมง UTC
+  monday_open_hour :  7    # ตลาดเปิดวันจันทร์กี่โมง UTC
 
 # ── 22. TRADE MANAGEMENT ─────────────────────────────────────────────
+# การจัดการ position หลังเปิดไม้แล้ว
 trade_management:
-  max_hold_hours      : 4     # ปิดถ้าถือ > 4 ชั่วโมง
-  be_after_rr         : 0.5   # กำไร 0.5R → ย้าย SL breakeven
-  partial_close_rr    : 0.4   # กำไร 40% TP → ปิดครึ่ง position
+  max_hold_hours      : 4      # ถือเกินกี่ชั่วโมง → ปิดอัตโนมัติ
+  be_after_rr         : 0.5    # กำไรถึง 0.5R → ย้าย SL ไปจุดเท่าทุน (breakeven)
+  partial_close_rr    : 0.4    # กำไรถึง 40% ของ TP → ปิดครึ่ง position
   partial_close_pct   : 0.50
   enable_time_exit    : true
   enable_breakeven    : true
@@ -279,42 +299,41 @@ trade_management:
 
 # ── 23. PYRAMIDING ───────────────────────────────────────────────────
 pyramiding:
-  enabled: false   # เปิดเมื่อ win rate > 50% ต่อเนื่อง 2 สัปดาห์
+  enabled: false   # เปิดเมื่อ win rate > 50% ต่อเนื่อง 2 สัปดาห์ (ยังไม่เปิดใช้)
 
 # ── 24. SYMBOL SETTINGS ──────────────────────────────────────────────
-# Override global settings ต่อ symbol — อ่านที่ bot/main.py และ bot/risk_manager.py
+# Override ค่า global (ข้อ 3, 5) เป็นรายตัว — ใช้ที่ bot/main.py และ bot/risk_manager.py
 symbol_settings:
   XAUUSD:
-    min_confidence     : 0.75  # สูงกว่า global (model bias BUY)
-    max_session_losses : 1     # แพ้ 1 ครั้ง → หยุด XAU ทั้ง session
-    risk_multiplier    : 0.50  # lot เล็กลง 50%
-    cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้
+    min_confidence     : 0.55  # เท่า global
+    max_session_losses : 2     # แพ้ 2 ครั้ง → หยุด XAU จนกว่าจะ reset session ถัดไป
+    risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบกับ symbol อื่น
+    cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้ ก่อนเทรด XAU ใหม่
   EURUSD:
     min_confidence     : 0.55
     risk_multiplier    : 1.00
     max_session_losses : 3
-    cooldown_after_loss: 15
+    cooldown_after_loss: 10
   GBPUSD:
     min_confidence     : 0.55
     risk_multiplier    : 1.00
     max_session_losses : 3
-    cooldown_after_loss: 15
-  _default:
+    cooldown_after_loss: 10
+  _default:                    # ใช้กับ symbol ที่ไม่ได้ระบุไว้ด้านบน
     min_confidence     : 0.55
     risk_multiplier    : 1.00
     max_session_losses : 3
-    cooldown_after_loss: 15
+    cooldown_after_loss: 10
 
 # ── 25. DAILY TRACKING ───────────────────────────────────────────────
-# Reset per-symbol session-loss counter (symbol_settings.*.max_session_losses)
-# 3 รอบต่อวัน แทนที่จะหยุดยาวทั้งวัน
+# กำหนดเวลา reset ตัวนับ session-loss (symbol_settings.*.max_session_losses)
+# เพื่อให้บอทไม่หยุดยาวทั้งวันแค่เพราะแพ้ติดในช่วงเดียว
 daily_tracking:
-  reset_hours_utc: [6, 13, 21]  # Session: Asian / London / NY
+  reset_hours_utc: [6, 13, 21]  # Reset ตอน Asia / London / NY เปิด
 
 # ── 26. SYMBOL MAP (broker-agnostic) ─────────────────────────────────
 # ชื่อ "กลาง" (ซ้าย) ที่ใช้ทุกที่ในระบบ → ชื่อจริงของแต่ละ broker (ขวา)
-# ย้าย broker ใหม่: 1) เปลี่ยน broker.name ข้อ 0  2) เพิ่มแถวที่นี่ถ้ายังไม่มี
-# ไม่ต้องแก้ไฟล์โค้ดเลยสักไฟล์
+# ย้าย broker ใหม่: 1) เปลี่ยน broker.name (ข้อ 0)  2) เพิ่มแถวที่นี่ถ้ายังไม่มี
 symbol_map:
   XAUUSD:
     exness     : "XAUUSDm"

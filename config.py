@@ -38,7 +38,9 @@ _REQUIRED_YAML_KEYS = [
     ("mt5",),
     ("symbols", "active"),
     ("risk", "risk_per_trade"),
-    ("risk", "max_daily_loss_pct"),
+    # ✅ CONSOLIDATED: risk.max_daily_loss_pct ถูกลบออกจาก config.yaml
+    # daily-loss limit เหลือจุดเดียวคือ circuit_breaker.daily.loss_pct
+    ("circuit_breaker", "daily", "loss_pct"),
     ("order", "magic_number"),
     ("signal", "active_model"),
     ("paths", "models_saved"),
@@ -255,11 +257,17 @@ def validate_config(raise_on_error: bool = True) -> bool:
                 "(แนะนำ 0.005–0.02 สำหรับ production)"
             )
 
-        max_dd = _get_nested(cfg, "risk", "max_daily_loss_pct", default=0)
-        if not (0 < max_dd <= 0.20):
+        # ✅ CONSOLIDATED: risk.max_daily_loss_pct ถูกลบออก — daily-loss
+        # limit อ่านจาก circuit_breaker.daily.loss_pct แทน
+        # ⚠️ หน่วยต่างกัน! risk.max_daily_loss_pct เดิมเป็น fraction (0.05 = 5%)
+        # ส่วน circuit_breaker.daily.loss_pct เป็น percent เต็ม (5.0 = 5%)
+        # ถ้าใช้ range เดิม (0–0.20) เทียบกับค่าใหม่ (5.0) จะ false-positive
+        # ทุกครั้ง ต้องปรับ range ให้เป็นหน่วย percent ด้วย (3–10 ไม่ใช่ 0.03–0.10)
+        max_dd = _get_nested(cfg, "circuit_breaker", "daily", "loss_pct", default=0)
+        if not (0 < max_dd <= 20):
             errors.append(
-                f"[risk.max_daily_loss_pct] ค่า {max_dd} ผิดปกติ "
-                "(แนะนำ 0.03–0.10)"
+                f"[circuit_breaker.daily.loss_pct] ค่า {max_dd} ผิดปกติ "
+                "(แนะนำ 3–10 หน่วย %, ไม่ใช่ fraction)"
             )
 
         active_model = _get_nested(cfg, "signal", "active_model", default="")
