@@ -35,8 +35,24 @@ symbols:
 # ── 3. RISK MANAGEMENT ──────────────────────────────────────
 risk:
   risk_per_trade         : 0.03   # 3% balance ต่อ trade
+  # ⚠️ ตรวจแล้ว: นี่คือ daily-loss check ตัวที่ 1 (live, ใช้จริง) — เปรียบเทียบ
+  #    balance ตอนเริ่มวัน vs balance ปัจจุบัน เรียกทุก tick ต่อ symbol ใน main.py
+  #    ยังมีตัวที่ 2 คือ circuit_breaker.daily.loss_pct (ข้อ 16) ซึ่งก็ live เหมือนกัน
+  #    แต่คำนวณจาก "ผลรวม P&L ของ deal ที่ปิดใน 24 ชม.ล่าสุด" แทน — คนละสูตรกัน
+  #    ถ้าไม่ได้ตั้งใจให้มี 2 เบรกแยกกัน ควรรวมเหลือจุดเดียว
   max_daily_loss_pct     : 0.05   # หยุดถ้าขาดทุน 5%/วัน
   max_open_trades        : 8
+  # ✅ ยืนยันแล้วจาก executor.py: ค่านี้ "live" จริง — ใช้ใน
+  #    risk_manager._check_spread() ซึ่งถูกเรียกผ่าน check_all() ที่
+  #    executor.send_order() Step 1 เรียกก่อนคำนวณ lot ทุก order
+  #    ⚠️ ระวัง: executor.py มีการเช็ค spread "ครั้งที่ 2" อีกรอบที่ Step 4
+  #    (เรียก risk.check_spread() แบบ public ซึ่งอ่าน spread_filter.limits
+  #    ข้อ 15 แทน) — เป็นหน่วยคนละแบบ (points vs price) ถ้าคำนวณคร่าวๆ
+  #    โดยสมมติ point=0.01 (XAUUSD 2-digit quote ปกติ):
+  #      XAUUSD: 30pts ≈ $0.30  <  spread_filter limit $0.80
+  #      → ด่านนี้ (points) เข้มกว่าเสมอ ด่านที่ 2 (price) แทบไม่มีโอกาสทำงาน
+  #    ยังไม่ได้ยืนยัน point size จริงจาก MT5 symbol_info — ควรเช็คก่อนสรุป
+  #    ถ้าตั้งใจให้มีแค่ด่านเดียว ควรลบอีกด่านทิ้ง ไม่ใช่ปล่อยให้ทับซ้อนแบบนี้
   max_spread_points:
     XAUUSD: 30
     EURUSD: 15
@@ -46,8 +62,9 @@ risk:
   max_lot: 0.50
   max_positions_per_symbol: 2     # อนุญาต 2 position/symbol
   add_same_direction_only : true  # ห้ามเปิดสวนทาง
-  add_position_min_conf   : 0.65  # conf >= 65% จึงเพิ่ม position ที่ 2
-  add_position_min_agree  : 2     # >= 2/3 โมเดลต้องเห็นตรงกัน
+  add_position_min_conf   : 0.52  # ✅ FIX: comment เดิมเขียน 65% ผิด ค่าจริงคือ 52%
+  # ✅ ยืนยันแล้วว่า live — ใช้ใน executor.py _can_add_position() (เงื่อนไข b)
+  add_position_min_agree  : 2     # >= 2/3 โมเดลต้องเห็นตรงกัน (เงื่อนไข c)
 
 # ── 4. ORDER SETTINGS ───────────────────────────────────────
 order:
@@ -80,10 +97,22 @@ signal:
   min_agree_for_directional_override: 2        # ✅ ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override
 
 # ── 6. TRADING SESSION ──────────────────────────────────────
+# ✅ ยืนยันแล้วจาก executor.py: ค่านี้ "live" จริง (ไม่ใช่ dead ตามที่เคยเดาไว้)
+#    risk_manager._check_session() ถูกเรียกผ่าน check_all() ที่
+#    executor.send_order() Step 1 — เป็นด่านที่ 2 ของ session check
+#    ด่านที่ 1 คือ risk.check_session() (public, DST-aware, อ่าน session_filter
+#    ข้อ 21) ที่ main.py เรียกก่อนเริ่มสร้าง signal เลย
+#
+#    🐛 บัคที่เจอ (แก้แล้ว): end เดิม = 20 แต่ NY session (session_filter)
+#    ปิดจริงที่ 21:00 UTC (EDT) หรือ 22:00 UTC (EST) — ทำให้ช่วง 20:00-22:00 UTC
+#    บอทผ่านด่านที่ 1 ได้ (NY ยังเปิดอยู่) ไปคำนวณ feature/signal ทั้งหมด
+#    (เปลือง compute) แล้วมาโดนบล็อกเงียบๆ ที่ด่านที่ 2 ตอนจะส่ง order จริง
+#    → เสียโอกาสเทรดช่วงท้าย NY session ไปทุกวันโดยไม่มี log เตือนชัดเจน
+#    แก้โดยขยาย end เป็น 22 ให้ครอบคลุม NY close ทั้ง EDT/EST
 session:
   allowed_hours_utc:
     start: 7
-    end: 20
+    end: 22   # ✅ FIX: 20→22 ให้ตรงกับ NY session close จริง (กัน order ถูกบล็อกผิด)
   skip_weekends  : true
   news_blackout_min: 20
   market_holidays:
@@ -178,6 +207,10 @@ api_keys:
   # บอทใช้ ForexFactory เป็น fallback (ฟรี ไม่ต้อง key)
 
 # ── 15. SPREAD FILTER ───────────────────────────────────────
+# ⚠️ นี่คือ spread gate "ที่ 2" — ดูหมายเหตุที่ risk.max_spread_points (ข้อ 3)
+#    executor.send_order() เช็ค risk.max_spread_points ก่อน (Step 1, points)
+#    แล้วเช็คชุดนี้อีกที (Step 4, price) ก่อนส่ง order จริง — เป็น final check
+#    คนละหน่วยกัน และจากการคำนวณคร่าวๆ ด่าน points มักเข้มกว่าด่านนี้เสมอ
 spread_filter:
   enabled : true
   fail_open: true
@@ -307,9 +340,15 @@ symbol_settings:
 
 # ── 25. DAILY TRACKING ──────────────────────────────────────
 # Reset loss counter 3 ครั้งต่อวัน แทนที่จะ stop ทั้งวัน
+# ⚠️ ตรวจ cross-reference กับ main.py + risk_manager.py + executor.py แล้ว (2026-06-22):
+#    reset_hours_utc        → ใช้จริง (main.py:72, _SESSION_RESET_HOURS)
+#    loss_limit_per_session → ไม่ถูกอ่านที่ไหนเลยใน 3 ไฟล์นี้ (ยืนยันครบ core trading path)
+#    การจำกัด loss ต่อ session จริงๆ ใช้ symbol_settings.*.max_session_losses
+#    (นับ "จำนวนครั้งที่แพ้" ไม่ใช่ "% ขาดทุน") — คนละ mechanism กันเลย
+#    เหลือแค่ telegram_bot.py/dashboard ที่ยังไม่เช็ค — ถ้าไม่เจอที่นั่นด้วย ลบได้เลย
 daily_tracking:
   reset_hours_utc        : [6, 13, 21]  # Session: Asian / London / NY
-  loss_limit_per_session : 0.03         # 3% per session
+  loss_limit_per_session : 0.03         # ⚠️ DEAD CONFIG — ไม่มีโค้ดอ่านค่านี้ (ดูหมายเหตุด้านบน)
 
 # ── 26. SYMBOL MAP (ใหม่ — broker-agnostic) ─────────────────
 # ชื่อ "กลาง" (ซ้าย) ที่ใช้ทุกที่ในระบบ → ชื่อจริงของแต่ละ broker (ขวา)

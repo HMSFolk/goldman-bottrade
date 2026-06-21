@@ -24,9 +24,9 @@ Defense layers ทุก tick:
 
 Per-symbol (run_tick):
   [1.3] Session loss limit     → stop XAU after N losses / session
-  [5.5] Per-symbol conf gate   → XAU ต้องการ 0.65 (global 0.55)
+  [5.5] Per-symbol conf gate   → XAU ต้องการ 0.75 (global 0.55)  # ⚠️ FIX: comment เดิม 0.65 ไม่ตรง config.yaml
   [6]   Cooldown (loss-aware)  → XAU พัก 60 min หลังแพ้ (global 15 min)
-  [8]   Volume multiplier      → XAU lot × 0.70
+  [8]   Volume multiplier      → XAU lot × 0.50  # ⚠️ FIX: comment เดิม 0.70 ไม่ตรง config.yaml
 
 Session resets: 6:00 / 13:00 / 21:00 UTC (config: daily_tracking.reset_hours_utc)
 ════════════════════════════════════════════════════════════
@@ -121,6 +121,12 @@ class BotState:
 
         # Error tracking per symbol
         self.symbol_errors: dict = {s: 0 for s in self.symbols}
+
+        # ✅ FIX: daily-loss latch — ป้องกัน close_all()+notify() ยิงซ้ำทุก tick
+        # (ต่างจาก circuit breaker ที่มี flags/paused กันซ้ำให้อยู่แล้ว
+        #  check_daily_loss() เดิมไม่มี latch เลย ถ้าขาดทุนเกิน limit ตอนเช้า
+        #  บอทจะ close_all()+ส่ง Telegram ซ้ำทุก tick จนกว่าจะถึง daily reset)
+        self.daily_loss_paused: bool = False
 
     def is_paused(self) -> bool:
         """ตรวจ pause flag — สร้างไฟล์ flags/paused เพื่อหยุดชั่วคราว"""
@@ -340,13 +346,19 @@ def run_tick(symbol: str):
         STATE.writer.write_account(acc)
 
         if not STATE.risk.check_daily_loss(acc['balance']):
-            log.warning("🛑 Daily loss limit — stop all trading today")
-            STATE.executor.close_all()
-            notify(
-                f"🛑 *Daily Loss Limit Hit*\n"
-                f"Balance: ${acc['balance']:,.2f}\n"
-                f"All positions closed"
-            )
+            if not STATE.daily_loss_paused:
+                # ✅ FIX: ยิง close_all()+notify() แค่ครั้งแรกที่ตรวจเจอ
+                # (เดิมไม่มี latch → ซ้ำทุก tick จนกว่าจะถึง daily reset
+                #  ตอน 21:00 UTC ทำให้ Telegram spam และเรียก close_all()
+                #  ซ้ำโดยไม่จำเป็นหลาย ๆ ร้อยครั้ง/วัน)
+                STATE.daily_loss_paused = True
+                log.warning("🛑 Daily loss limit — stop all trading today")
+                STATE.executor.close_all()
+                notify(
+                    f"🛑 *Daily Loss Limit Hit*\n"
+                    f"Balance: ${acc['balance']:,.2f}\n"
+                    f"All positions closed"
+                )
             return
 
         # ── 3. ดึงราคาล่าสุด ─────────────────────────────────
@@ -530,8 +542,8 @@ def get_symbol_config(symbol: str) -> dict:
 
     ตัวอย่าง:
         sym_cfg = get_symbol_config("XAUUSD")
-        # → {"min_confidence": 0.65, "risk_multiplier": 0.70,
-        #     "max_session_losses": 2, "cooldown_after_loss": 60}
+        # → {"min_confidence": 0.75, "risk_multiplier": 0.50,
+        #     "max_session_losses": 1, "cooldown_after_loss": 60}
     """
     defaults = {
         "min_confidence"     : CFG.get("signal", {}).get("min_confidence", 0.55),
@@ -637,6 +649,8 @@ def run_all_symbols():
                     reset_consecutive    = reset_consec,
                     reset_daily_tracking = reset_daily,
                 )
+                if reset_daily:
+                    STATE.daily_loss_paused = False  # ✅ FIX: sync กับ reset_daily_tracking
                 STATE.set_pause(False)
                 flag.unlink(missing_ok=True)
                 log.info(f"✅ Bot reset [{label}] by Telegram request")
@@ -720,6 +734,7 @@ def _daily_summary():
         )
 
         STATE.risk.reset_daily()
+        STATE.daily_loss_paused = False  # ✅ FIX: ปลด latch พร้อม daily reset
         STATE.tick_count = 0
 
     except Exception as e:

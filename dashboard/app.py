@@ -722,11 +722,22 @@ def _render_signals():
             name = sym,
             line = dict(width=1.5),
         ))
+        # ✅ FIX: เดิม fix ที่ค่า global CFG['signal']['min_confidence'] (0.55)
+        # เสมอทุก symbol — แต่ symbol_settings.{sym}.min_confidence override
+        # ได้ (เช่น XAUUSD จริงคือ 0.75 ไม่ใช่ 0.55) เส้นเดิมจึงทำให้เข้าใจผิด
+        # ว่าสัญญาณที่ confidence > 0.55 ของ XAU ควรจะเทรด ทั้งที่บอทใช้ 0.75
+        # จริง ดึง threshold ที่ตรงกับ symbol นั้นๆ แทน (ใช้ override logic
+        # เดียวกับ bot/main.py: get_symbol_config())
+        sym_min_conf = (
+            CFG.get("symbol_settings", {})
+               .get(sym, {})
+               .get("min_confidence", CFG["signal"]["min_confidence"])
+        )
         fig.add_hline(
-            y          = CFG['signal']['min_confidence'],
+            y          = sym_min_conf,
             line_dash  = "dash",
             line_color = "#f0b429",
-            annotation_text = f"min_conf={CFG['signal']['min_confidence']}",
+            annotation_text = f"min_conf={sym_min_conf} ({sym})",
         )
         layout = _plotly_layout(sym, height=180)
         layout['yaxis'].update(range=[0,1], tickformat='.0%')
