@@ -254,11 +254,14 @@ def main():
     equity = load_equity(days_back=90)
 
     # ── Tabs ──────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # ✅ FIX: เพิ่ม tab 5 — เดิม import show_live_vs_backtest ไว้
+    # แต่ไม่เคยถูกเรียกใช้จริงเลยสักที่ (dead import)
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📈 Overview",
         "📋 Trades",
         "🧠 Signals",
         "📊 Analysis",
+        "🔬 Live vs Backtest",
     ])
 
     # ══════════════════════════════════════════════════════════
@@ -284,6 +287,12 @@ def main():
     # ══════════════════════════════════════════════════════════
     with tab4:
         _render_analysis(trades)
+
+    # ══════════════════════════════════════════════════════════
+    # Tab 5: Live vs Backtest (Reality Check)
+    # ══════════════════════════════════════════════════════════
+    with tab5:
+        show_live_vs_backtest(trades)
 
     # ── Auto Refresh ──────────────────────────────────────────
     st.markdown(
@@ -782,7 +791,6 @@ def _render_analysis(trades: pd.DataFrame):
             use_container_width=True,
             height=300,
         )
-
 
 # ── Run ────────────────────────────────────────────────────────
 if __name__ == "__main__":
