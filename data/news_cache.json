@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-22T10:41:59.938168+00:00",
+  "fetched_utc": "2026-06-22T16:45:25.002358+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -82,7 +82,7 @@
       "title": "Consumer Confidence",
       "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-06-22T14:00:00+00:00",
+      "time_utc": "2026-06-22T14:04:00+00:00",
       "source": "forexfactory"
     },
     {

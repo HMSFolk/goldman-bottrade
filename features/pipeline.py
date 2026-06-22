@@ -44,6 +44,53 @@ from features.price_action import add_price_action_features
 from features.mtf_and_label import add_mtf_features, add_target_label
 
 
+# ══════════════════════════════════════════════════════════════
+# Session Features — สร้าง is_*_session columns จาก DatetimeIndex
+# ══════════════════════════════════════════════════════════════
+def add_session_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    สร้าง session flag columns จาก UTC timestamp ใน index
+    รองรับทุก session ที่ config session_filter.allowed_sessions ระบุ
+
+    Columns ที่สร้าง:
+        is_sydney_session   — 21:00-06:00 UTC
+        is_tokyo_session    — 00:00-09:00 UTC
+        is_london_session   — 07:00-16:00 UTC
+        is_ny_session       — 12:00-21:00 UTC  (EDT, ปรับ DST อัตโนมัติ)
+        is_overlap_session  — London + NY เปิดพร้อมกัน (12:00-16:00 UTC)
+        hour_utc            — ชั่วโมง UTC (0-23) ใช้ debug + feature เสริม
+
+    หมายเหตุ DST: NY จริงๆ ปรับตาม EDT/EST แต่ใช้ 12-21 เป็น
+    approximation ที่ใกล้เคียงและ consistent กับ session_filter
+    ใน risk_manager ที่ DST-aware อยู่แล้ว
+    """
+    df  = df.copy()
+    idx = df.index
+
+    # ตรวจสอบ timezone-aware
+    if hasattr(idx, 'tz') and idx.tz is None:
+        idx = idx.tz_localize('UTC')
+    elif hasattr(idx, 'tz') and str(idx.tz) != 'UTC':
+        idx = idx.tz_convert('UTC')
+
+    hour = idx.hour
+
+    # Sydney:  21:00 – 06:00 UTC (ข้ามคืน)
+    df['is_sydney_session']  = ((hour >= 21) | (hour < 6)).astype(int)
+    # Tokyo:   00:00 – 09:00 UTC
+    df['is_tokyo_session']   = ((hour >= 0) & (hour < 9)).astype(int)
+    # London:  07:00 – 16:00 UTC
+    df['is_london_session']  = ((hour >= 7) & (hour < 16)).astype(int)
+    # New York: 12:00 – 21:00 UTC (EDT approximation)
+    df['is_ny_session']      = ((hour >= 12) & (hour < 21)).astype(int)
+    # Overlap: London + NY เปิดพร้อมกัน
+    df['is_overlap_session'] = ((hour >= 12) & (hour < 16)).astype(int)
+    # Hour ดิบ (useful feature สำหรับโมเดล)
+    df['hour_utc']           = hour.astype(int)
+
+    return df
+
+
 # ── Constants ─────────────────────────────────────────────────
 FORWARD_BARS  = CFG['training']['forward_bars']       # 4
 MIN_RETURN    = CFG['training']['min_return_pct']     # 0.0015
@@ -205,6 +252,7 @@ def build_features(
 
     # ── Feature Groups ────────────────────────────────────────
     steps = [
+        ("Session (London/NY/Tokyo/Sydney)", add_session_features),
         ("Trend (EMA/MACD/ADX/Ichimoku)",  add_trend_features),
         ("Momentum (RSI/Stoch/CCI)",        add_momentum_features),
         ("Volatility (ATR/BB/Keltner)",     add_volatility_features),
@@ -387,6 +435,7 @@ def build_features_live(
                 macro_dfs[name] = pd.read_parquet(path)
 
     # 3. Build features พื้นฐาน (ไม่สร้าง label)
+    df = add_session_features(df)   # ✅ session ต้องเป็นอันแรก (timestamp-based)
     df = add_trend_features(df)
     df = add_momentum_features(df)
     df = add_volatility_features(df)

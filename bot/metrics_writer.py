@@ -376,8 +376,8 @@ class MetricsWriter:
         total_pnl     = sum(profits)
         win_rate      = len(wins) / len(profits) if profits else 0
         profit_factor = (
-            sum(wins) / abs(sum(losses))
-            if losses else float('inf')
+            round(sum(wins) / abs(sum(losses)), 3)
+            if losses and sum(losses) != 0 else 0.0   # 0.0 แทน inf ป้องกัน DB ปัง
         )
 
         # คำนวณ max drawdown วันนี้
@@ -584,7 +584,11 @@ class MetricsWriter:
             'trades', 'account_snapshots',
             'signals', 'daily_summary',
         ]
+        ALLOWED = {'trades','account_snapshots','signals','daily_summary'}
         for table in tables:
+            if table not in ALLOWED:   # กัน SQL injection
+                log.warning(f"export_csv: ข้าม table ที่ไม่รู้จัก '{table}'")
+                continue
             with _get_conn() as conn:
                 df = pd.read_sql_query(
                     f"SELECT * FROM {table}", conn

@@ -165,6 +165,7 @@ class RuleBasedStrategy:
                 reasons.append(f"EMA{self.ema_fast}>{self.ema_slow}(+2)")
             else:
                 sell_score += 2.0
+                reasons.append(f"EMA{self.ema_fast}<{self.ema_slow}(+2 SELL)")
 
             # EMA อยู่เหนือ EMA trend
             c = row.get('close', 0)
@@ -173,6 +174,7 @@ class RuleBasedStrategy:
                 reasons.append(f"Price>EMA{self.ema_trend}(+1)")
             else:
                 sell_score += 1.0
+                reasons.append(f"Price<EMA{self.ema_trend}(+1 SELL)")
 
         # ── Condition 2: RSI Zone (น้ำหนัก 1.5) ──────────────
         rsi = row.get(f'rsi_{self.rsi_period}')
@@ -184,15 +186,23 @@ class RuleBasedStrategy:
                 blocked.append(f"RSI overbought ({rsi:.0f})")
 
             if rsi > self.rsi_os:           # ยังไม่ oversold
+                # ✅ FIX BUG-1: เดิมให้ BUY +0.5 ฟรีทุกครั้ง (rsi_os=35 แทบไม่โดน)
+                # เพิ่ม SELL equivalent ให้สมดุล
                 buy_score += 0.5
+            if rsi < self.rsi_ob:           # SELL equivalent: ยังไม่ overbought
+                sell_score += 0.5
 
-            if 45 < rsi < 65:               # RSI zone bullish
+            # ✅ FIX BUG-2: เดิม elif ทำให้ RSI 45-55 (neutral) ไป BUY ตลอด
+            # แก้เป็น zone แยกชัดเจน ไม่ทับกัน
+            if rsi > 55:                    # bullish zone จริงๆ
                 buy_score += 0.5
                 reasons.append("RSI bullish zone(+0.5)")
-            elif 35 < rsi < 55:
+            elif rsi < 45:                  # bearish zone จริงๆ
                 sell_score += 0.5
-            elif rsi < self.rsi_os:
+                reasons.append(f"RSI bearish zone({rsi:.0f})(+0.5 SELL)")
+            elif rsi < self.rsi_os:         # oversold — SELL pressure แรง
                 sell_score += 1.5
+                reasons.append(f"RSI oversold({rsi:.0f})(+1.5 SELL)")
 
         # ── Condition 3: ADX — trend แรงพอ (น้ำหนัก 1.0) ────
         adx     = row.get('adx')
@@ -286,12 +296,23 @@ class RuleBasedStrategy:
             buy_score  *= 0.3
             sell_score *= 0.3
 
-        # นอก trading session
-        in_london = row.get('is_london_session', 1)
-        in_ny     = row.get('is_ny_session', 1)
+        # นอก trading session — อ่านจาก config เหมือน strategy_v1.py
+        in_london = row.get('is_london_session', 0)
+        in_ny     = row.get('is_ny_session',     0)
+        in_tokyo  = row.get('is_tokyo_session',  0)
+        in_sydney = row.get('is_sydney_session', 0)
+
+        sf_cfg    = CFG.get('session_filter', {})
+        allowed   = sf_cfg.get('allowed_sessions', ['London', 'New York'])
+        sess_map  = {
+            'London'  : in_london,
+            'New York': in_ny,
+            'Tokyo'   : in_tokyo,
+            'Sydney'  : in_sydney,
+        }
         if _valid(in_london, in_ny):
-            if in_london == 0 and in_ny == 0:
-                blocked.append("นอก London/NY session")
+            if not any(sess_map.get(s, 0) == 1 for s in allowed):
+                blocked.append("นอก trading session")
                 buy_score  = 0
                 sell_score = 0
 

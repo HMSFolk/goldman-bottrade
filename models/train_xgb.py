@@ -263,6 +263,12 @@ def walk_forward_train(
         y_tr_e = le.fit_transform(y_train)
         y_te_e = le.transform(y_test)
 
+        # ✅ FIX: คำนวณ sample_weight เพื่อ balance BUY/SELL/HOLD
+        # เดิมไม่มี → โมเดล bias BUY เพราะ label BUY มีมากกว่า
+        classes, counts = np.unique(y_tr_e, return_counts=True)
+        class_w = len(y_tr_e) / (len(classes) * counts)
+        sample_w = class_w[y_tr_e]
+
         # ── Train ──────────────────────────────────────────────
         model = xgb.XGBClassifier(
             **params,
@@ -275,6 +281,7 @@ def walk_forward_train(
 
         model.fit(
             X_train, y_tr_e,
+            sample_weight         = sample_w,
             eval_set              = [(X_test, y_te_e)],
             #early_stopping_rounds = 50,
             verbose               = False,

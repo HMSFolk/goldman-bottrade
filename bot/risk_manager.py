@@ -490,9 +490,12 @@ class RiskManager:
             )
 
         # ตรวจว่า symbol นี้มี position อยู่แล้วไหม
-        # ✅ NEW: symbol เป็นชื่อกลาง resolve ก่อนถาม MT5
+        # ✅ FIX: เดิม hardcode limit=1 → position #2 เปิดไม่ได้แม้ตั้ง
+        # max_positions_per_symbol=2 ใน config (ขัดกับ executor._can_add_position
+        # ที่อ่าน config ถูกอยู่แล้ว)
+        max_per_sym   = int(self._cfg.get('risk', {}).get('max_positions_per_symbol', 1))
         sym_positions = mt5.positions_get(symbol=resolve_symbol(symbol)) or []
-        if len(sym_positions) > 0:
+        if len(sym_positions) >= max_per_sym:
             return RiskCheckResult(
                 passed = False,
                 check  = "symbol_already_open",
@@ -501,7 +504,7 @@ class RiskManager:
                     f"{len(sym_positions)} รายการ"
                 ),
                 value  = len(sym_positions),
-                limit  = 1,
+                limit  = max_per_sym,
             )
 
         return RiskCheckResult(

@@ -400,7 +400,7 @@ def run_tick(symbol: str):
             return
 
         # ── 7. Regime-Aware Signal ────────────────────────────
-        reg_result = {}   # ✅ FIX: init ก่อนเสมอ กัน UnboundLocalError ที่บรรทัด 430
+        reg_result = {}   # init ก่อนเสมอ กัน UnboundLocalError
         if regime is not None and hasattr(STATE.strategy, 'ensemble'):
             reg_result = STATE.strategy.ensemble.predict_with_regime(
                 df, regime, symbol
@@ -414,11 +414,33 @@ def run_tick(symbol: str):
                 )
                 return
 
-            log.info(
-                f"  [{symbol}] predict_with_regime OK "
-                f"conf={reg_result['signal'].confidence:.3f} "
-                f"threshold={reg_result['threshold_used']:.3f}"
-            )
+            # ✅ FIX: บังคับ regime filter แม้ VIP Pass ผ่านมาแล้ว
+            # เดิม VIP Pass bypass regime filter → เปิดไม้สวนเทรนด์ขาดทุน
+            # ตอนนี้ blocked_combos ใน config ยังทำงานแม้ conf สูงมาก
+            sig = reg_result.get("signal")
+            if (sig and is_valid and
+                    CFG.get('strategy_filters', {}).get('use_regime_filter', True)):
+                regime_name = str(regime).lower()
+                sig_dir     = sig.direction   # 1=BUY -1=SELL
+                for combo in CFG.get('regime_filter', {}).get('blocked_combos', []):
+                    c_regime = combo.get('regime', '').replace('_', ' ')
+                    c_signal = combo.get('signal', '')
+                    if (c_regime in regime_name and
+                            ((c_signal == 'BUY'  and sig_dir ==  1) or
+                             (c_signal == 'SELL' and sig_dir == -1))):
+                        log.info(
+                            f"  [{symbol}] VIP Pass blocked by regime filter: "
+                            f"{combo['regime']} + {c_signal}"
+                        )
+                        is_valid = False
+                        break
+
+            if is_valid:
+                log.info(
+                    f"  [{symbol}] predict_with_regime OK "
+                    f"conf={reg_result['signal'].confidence:.3f} "
+                    f"threshold={reg_result['threshold_used']:.3f}"
+                )
         else:
             is_valid = setup.is_valid
 
@@ -440,12 +462,26 @@ def run_tick(symbol: str):
 
         # ── 8. Send Order ─────────────────────────────────────
         if is_valid:
+            # ✅ FIX: ดึง n_agree จาก path ที่ใช้จริง แล้วส่งไป executor
+            # เดิมไม่ส่งเลย → default=0 → _can_add_position ข้าม agree check
+            if regime is not None and "signal" in reg_result:
+                n_agree = getattr(reg_result["signal"], "n_agree", 0)
+            else:
+                n_agree = 0
+                for r in setup.reasons:
+                    if "agree=" in r:
+                        try:
+                            n_agree = int(r.split("agree=")[1].split("/")[0])
+                        except Exception:
+                            pass
+
             result = STATE.executor.send_order(
                 symbol            = symbol,
                 direction         = setup.direction,
                 sl_distance       = setup.sl_distance,
                 tp_distance       = setup.tp_distance,
                 confidence        = setup.confidence,
+                n_agree           = n_agree,
                 comment           = "bot_trade",
                 volume_multiplier = sym_cfg["risk_multiplier"],  # XAU=0.70
             )

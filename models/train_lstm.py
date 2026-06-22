@@ -487,6 +487,14 @@ def walk_forward_train(
         )
         criterion = nn.CrossEntropyLoss(
             label_smoothing = 0.1,   # ลด overconfidence
+            # ✅ FIX: เพิ่ม class weight ให้ loss function
+            # เดิมมีแค่ WeightedSampler (balance sampling) แต่ loss ไม่ weighted
+            # → LSTM ยังคิดว่า predict HOLD ถูกบ่อยกว่า SELL/BUY
+            # ตอนนี้ loss ถ่วงน้ำหนัก SELL/BUY ให้หนักขึ้นด้วย
+            weight = torch.tensor(
+                [1.0 / (np.sum(y_tr == c) + 1e-9) for c in range(3)],
+                dtype=torch.float32,
+            ).to(DEVICE),
         )
 
         # ── Training Loop ──────────────────────────────────────

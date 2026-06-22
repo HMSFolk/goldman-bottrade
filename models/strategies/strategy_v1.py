@@ -342,23 +342,47 @@ class StrategyV1:
     def _check_session(
         self, row: pd.Series) -> tuple[bool, str, str]:
         """
-        เทรดเฉพาะ London + NY session
-
-        Gold ผันผวนสูงสุดและ spread ดีที่สุดช่วงนี้
+        เช็ค session ตาม config.yaml symbol_sessions
+        รองรับทุก session (Sydney/Tokyo/London/NY) ผ่าน config
         """
-        is_london  = row.get('is_london_session', 1)
-        is_ny      = row.get('is_ny_session',     1)
-        is_overlap = row.get('is_overlap_session',0)
+        is_london  = row.get('is_london_session',  0)
+        is_ny      = row.get('is_ny_session',      0)
+        is_overlap = row.get('is_overlap_session', 0)
+        is_tokyo   = row.get('is_tokyo_session',   0)
+        is_sydney  = row.get('is_sydney_session',  0)
 
-        if is_london == 0 and is_ny == 0:
-            return False, "outside_session", "asian"
+        # อ่าน allowed sessions จาก config (ถ้าไม่มี default = London+NY)
+        sf_cfg = CFG.get('session_filter', {})
+        allowed = sf_cfg.get('allowed_sessions',
+                             ['London', 'New York'])
 
+        session_map = {
+            'London'  : is_london,
+            'New York': is_ny,
+            'Tokyo'   : is_tokyo,
+            'Sydney'  : is_sydney,
+        }
+
+        in_session = any(
+            session_map.get(s, 0) == 1 for s in allowed
+        )
+
+        if not in_session:
+            return False, "outside_session", "closed"
+
+        # ระบุชื่อ session ปัจจุบัน
         if is_overlap == 1:
             session = "overlap"
         elif is_london == 1:
             session = "london"
-        else:
+        elif is_ny == 1:
             session = "newyork"
+        elif is_tokyo == 1:
+            session = "tokyo"
+        elif is_sydney == 1:
+            session = "sydney"
+        else:
+            session = "open"
 
         return True, "", session
 

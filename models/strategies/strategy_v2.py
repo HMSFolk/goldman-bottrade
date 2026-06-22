@@ -18,7 +18,6 @@ Strategy V2 — Experimental / Testing
 """
 
 import logging
-import yaml
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
@@ -26,8 +25,12 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("models")
 
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX: ใช้ get_config() แทน open("config.yaml") โดยตรง
+# เหตุผล: 1) path relative crash ถ้า CWD ไม่ใช่ project root
+#         2) get_config() inject .env (MT5 credentials) ด้วย
+#         3) lru_cache — อ่านครั้งเดียว ไม่ disk I/O ซ้ำ
+from config import get_config
+CFG = get_config()
 
 # ── Version Info ───────────────────────────────────────────────
 VERSION    = "2.0.0-beta"

@@ -273,16 +273,14 @@ def walk_forward_train(
         y_te = le.transform(y.iloc[test_idx])
 
         # ── LightGBM Dataset ───────────────────────────────────
-        # ✅ FIX BUG-2: เพิ่ม sample_weight เพื่อแก้ class imbalance
-        # BUY recall ≈ 0 เพราะ HOLD มีมากกว่า BUY/SELL มาก
-        # sample_weight ทำให้โมเดลสนใจ BUY/SELL มากขึ้น
+        # คำนวณ sample_weight เพื่อ balance BUY/SELL/HOLD
+        # weight แต่ละ sample = total / (n_classes * count_of_its_class)
         class_counts = np.bincount(y_tr.astype(int))
         total        = len(y_tr)
         n_classes    = len(class_counts)
-        # weight แต่ละ sample = total / (n_classes * count_of_its_class)
         weights_per_class = total / (n_classes * np.maximum(class_counts, 1))
-        # BUY class (index 2 หลัง LabelEncoder) — boost เพิ่มพิเศษ
-        weights_per_class[2] = weights_per_class[2] * 1.5   # boost BUY
+        # ❌ BUG-FIX: เดิม boost BUY (index 2) เพิ่ม 1.5x ทำให้ BUY bias แย่ขึ้น
+        # ลบออก — ให้ทุก class ได้ weight สมดุลจริงๆ
         sample_weight = weights_per_class[y_tr.astype(int)]
 
         train_ds = lgb.Dataset(

@@ -652,16 +652,19 @@ def run_deploy_checklist(
     }
 
     # ── ตรวจ 6: Risk Parameters ────────────────────────────────
+    # ✅ FIX: max_daily_loss_pct ถูกย้ายไปอยู่ที่ circuit_breaker.daily.loss_pct
+    # (หน่วยเปลี่ยนจาก fraction → percent เต็ม เช่น 5.0 = 5%)
+    _daily_loss_pct = CFG.get('circuit_breaker', {}).get('daily', {}).get('loss_pct', 5.0) / 100
     risk_ok = (
-        CFG['risk']['risk_per_trade']   <= 0.02 and
-        CFG['risk']['max_daily_loss_pct']<= 0.10 and
-        CFG['risk']['max_open_trades']   <= 5
+        CFG['risk']['risk_per_trade'] <= 0.02 and
+        _daily_loss_pct                <= 0.10 and
+        CFG['risk']['max_open_trades'] <= 5
     )
     results['risk_params'] = {
         'pass'  : risk_ok,
         'detail': {
             'risk_per_trade'  : CFG['risk']['risk_per_trade'],
-            'max_daily_loss'  : CFG['risk']['max_daily_loss_pct'],
+            'max_daily_loss'  : _daily_loss_pct,
             'max_open_trades' : CFG['risk']['max_open_trades'],
         },
         'note'  : "risk≤2% | daily_loss≤10% | max_trades≤5",

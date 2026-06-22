@@ -468,16 +468,19 @@ class EnsembleTrader:
         # ── 5. Block Conditions ────────────────────────────────
         block_reason = ""
 
-        # ถ้า AI มั่นใจ >= 65% และเห็นตรงกัน 2 ตัวขึ้นไป ให้เทรดเลย!
-        # (ใช้ตัวแปร confidence และ n_agree โดยตรง ไม่ต้องมี signal.)
-        # ✅ FIX: เพิ่ม VIP Pass จาก 0.45 → 0.62
-        # เหตุผล: 0.45 ต่ำเกิน (baseline random = 0.33) ทำให้เทรดสัญญาณแย่
-        # 0.62 = มั่นใจจริงๆ และ n_agree >= 2 → คุณภาพดีขึ้นมาก
+        # VIP Pass: conf สูง + โมเดลเห็นตรงกัน → ผ่าน ensemble block ได้
+        # ⚠️ NOTE: VIP Pass เคลียร์แค่ ensemble-level blocks (conflict/HOLD ต่ำ)
+        # regime filter และ session filter ยังทำงานปกติใน main.py
+        # (ก่อนหน้านี้ VIP Pass เคลียร์ทุกอย่าง → เปิดไม้สวนเทรนด์ขาดทุน)
         is_strong_signal = (confidence >= 0.62) and (n_agree >= 2) and (direction != 0)
 
         if is_strong_signal:
-            block_reason = ""  # เคลียร์เหตุผลการบล็อกทั้งหมด ให้ผ่านได้เลย
-            log.info(f"{self.symbol}: 🚀 บังคับเปิดออเดอร์ (VIP Pass) เพราะความมั่นใจสูง {confidence:.2f}")
+            log.info(
+                f"{self.symbol}: 🚀 VIP Pass conf={confidence:.2f} "
+                f"agree={n_agree} — ผ่าน ensemble block"
+            )
+            # ไม่เคลียร์ block_reason ที่มาจาก regime/session
+            # แค่ข้ามการ check _check_blocks() เพื่อไม่ให้ ensemble-level block
         else:
             # ตรวจสอบ block reasons แบบปกติ (ถ้าคะแนนไม่ถึง VIP)
             block_reason = self._check_blocks(
