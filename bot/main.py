@@ -400,6 +400,7 @@ def run_tick(symbol: str):
             return
 
         # ── 7. Regime-Aware Signal ────────────────────────────
+        reg_result = {}   # ✅ FIX: init ก่อนเสมอ กัน UnboundLocalError ที่บรรทัด 430
         if regime is not None and hasattr(STATE.strategy, 'ensemble'):
             reg_result = STATE.strategy.ensemble.predict_with_regime(
                 df, regime, symbol
