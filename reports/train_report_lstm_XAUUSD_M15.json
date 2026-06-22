@@ -1,39 +1,39 @@
 {
   "symbol": "XAUUSD",
   "seq_len": 60,
-  "n_features": 298,
-  "trained_at": "2026-06-21T00:46:06.915631+00:00",
-  "is_acceptable": "True",
-  "mean_accuracy": 0.5769,
-  "mean_f1": 0.4018,
-  "std_accuracy": 0.0216,
+  "n_features": 358,
+  "trained_at": "2026-06-22T08:08:15.290426+00:00",
+  "is_acceptable": "False",
+  "mean_accuracy": 0.5742,
+  "mean_f1": 0.3983,
+  "std_accuracy": 0.0293,
   "folds": [
     {
       "fold": 1,
-      "train_period": "2026-01-16\u21922026-02-24",
+      "train_period": "2026-01-19\u21922026-02-24",
       "test_period": "2026-02-25\u21922026-04-06",
-      "accuracy": 0.5751,
-      "f1_macro": 0.4006,
-      "best_epoch": 9,
-      "train_loss": 0.494
+      "accuracy": 0.5783,
+      "f1_macro": 0.3944,
+      "best_epoch": 12,
+      "train_loss": 0.4672
     },
     {
       "fold": 2,
-      "train_period": "2026-01-16\u21922026-04-02",
+      "train_period": "2026-01-19\u21922026-04-02",
       "test_period": "2026-04-06\u21922026-05-13",
-      "accuracy": 0.5513,
-      "f1_macro": 0.3929,
-      "best_epoch": 16,
-      "train_loss": 0.42
+      "accuracy": 0.5365,
+      "f1_macro": 0.3965,
+      "best_epoch": 14,
+      "train_loss": 0.4418
     },
     {
       "fold": 3,
-      "train_period": "2026-01-16\u21922026-05-12",
-      "test_period": "2026-05-13\u21922026-06-19",
-      "accuracy": 0.6042,
-      "f1_macro": 0.4118,
-      "best_epoch": 20,
-      "train_loss": 0.4035
+      "train_period": "2026-01-19\u21922026-05-12",
+      "test_period": "2026-05-13\u21922026-06-22",
+      "accuracy": 0.6079,
+      "f1_macro": 0.4041,
+      "best_epoch": 21,
+      "train_loss": 0.4385
     }
   ]
 }

@@ -3,75 +3,75 @@
   "data": "ok",
   "features": "ok",
   "xgb": {
-    "XAUUSDm": {
-      "acc": 0.58,
-      "f1": 0.395,
+    "XAUUSD": {
+      "acc": 0.568,
+      "f1": 0.308,
       "ok": false
     },
-    "EURUSDm": {
-      "acc": 0.617,
-      "f1": 0.376,
+    "EURUSD": {
+      "acc": 0.578,
+      "f1": 0.332,
       "ok": false
     },
-    "GBPUSDm": {
-      "acc": 0.585,
-      "f1": 0.4,
+    "GBPUSD": {
+      "acc": 0.568,
+      "f1": 0.324,
       "ok": false
     }
   },
   "lgbm": {
-    "XAUUSDm": {
-      "acc": 0.599,
-      "f1": 0.456,
+    "XAUUSD": {
+      "acc": 0.592,
+      "f1": 0.43,
       "ok": true
     },
-    "EURUSDm": {
-      "acc": 0.526,
-      "f1": 0.427,
-      "ok": true
+    "EURUSD": {
+      "acc": 0.482,
+      "f1": 0.384,
+      "ok": false
     },
-    "GBPUSDm": {
-      "acc": 0.557,
-      "f1": 0.452,
+    "GBPUSD": {
+      "acc": 0.538,
+      "f1": 0.437,
       "ok": true
     }
   },
   "lstm": {
-    "XAUUSDm": {
-      "acc": 0.596,
-      "f1": 0.41,
-      "ok": true
-    },
-    "EURUSDm": {
-      "acc": 0.584,
-      "f1": 0.364,
+    "XAUUSD": {
+      "acc": 0.574,
+      "f1": 0.398,
       "ok": false
     },
-    "GBPUSDm": {
-      "acc": 0.572,
-      "f1": 0.44,
-      "ok": true
+    "EURUSD": {
+      "acc": 0.559,
+      "f1": 0.378,
+      "ok": false
+    },
+    "GBPUSD": {
+      "acc": 0.541,
+      "f1": 0.392,
+      "ok": false
     }
   },
   "verify": {
-    "XAUUSDm": "ok",
-    "EURUSDm": "ok",
-    "GBPUSDm": "ok"
+    "XAUUSD": "ok",
+    "EURUSD": "ok",
+    "GBPUSD": "ok"
   },
   "backtest": {
-    "XAUUSDm": {
+    "XAUUSD": {
       "passed": false,
-      "grade": "A+"
+      "error": "'max_daily_loss_pct'"
     },
-    "EURUSDm": {
+    "EURUSD": {
       "passed": false,
-      "grade": "A+"
+      "error": "'max_daily_loss_pct'"
     },
-    "GBPUSDm": {
+    "GBPUSD": {
       "passed": false,
-      "grade": "A+"
+      "error": "'max_daily_loss_pct'"
     }
   },
-  "duration_sec": 8702,
-  "completed_at": "2026-06-15T22:46:25.662723+00:00"
+  "duration_sec": 10200,
+  "completed_at": "2026-06-22T10:31:50.847332+00:00"
 }

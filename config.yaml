@@ -58,7 +58,8 @@ order:
     EURUSD:  80
     GBPUSD:  90
     default:  90
-  tp_ratio: 0.7               # TP = SL × ค่านี้ (ค่าพื้นฐาน ก่อนถูกปรับโดย tp_by_regime)
+  tp_ratio: 0.7                # TP = SL × ค่านี้ (เก็บกำไรเร็ว)
+  min_rr  : 0.5                # R:R ขั้นต่ำที่ยอมรับ — ตั้งให้ต่ำกว่า tp_ratio เสมอ
   tp_by_regime:                # ปรับ TP ตาม regime ที่ตรวจเจอ
     trending_up  : 1.5
     trending_down: 1.5
@@ -76,7 +77,7 @@ order:
 # threshold การตัดสินใจของโมเดล
 signal:
   active_model                      : "ensemble"   # rule_based | xgb | lgbm | lstm | ensemble
-  min_confidence                    : 0.55     # confidence ขั้นต่ำที่จะเปิดไม้ (override ได้ที่ symbol_settings)
+  min_confidence                    : 0.50     # confidence ขั้นต่ำที่จะเปิดไม้ (override ได้ที่ symbol_settings)
   lookback_bars                     : 200      # จำนวนแท่งย้อนหลังที่ใช้คำนวณ feature
   cooldown_min                      : 10       # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
   min_directional_prob              : 0.28     # prob ขั้นต่ำของ BUY/SELL ก่อนพิจารณา override ทิศทาง
