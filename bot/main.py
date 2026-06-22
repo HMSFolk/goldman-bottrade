@@ -122,10 +122,9 @@ class BotState:
         # Error tracking per symbol
         self.symbol_errors: dict = {s: 0 for s in self.symbols}
 
-        # ✅ FIX: daily-loss latch — ป้องกัน close_all()+notify() ยิงซ้ำทุก tick
-        # (ต่างจาก circuit breaker ที่มี flags/paused กันซ้ำให้อยู่แล้ว
-        #  check_daily_loss() เดิมไม่มี latch เลย ถ้าขาดทุนเกิน limit ตอนเช้า
-        #  บอทจะ close_all()+ส่ง Telegram ซ้ำทุก tick จนกว่าจะถึง daily reset)
+        # latch ป้องกัน close_all()+notify() ยิงซ้ำทุก tick เมื่อ circuit
+        # breaker.daily trigger — reset อัตโนมัติเมื่อ circuit breaker
+        # หมด pause หรือถึงเวลา daily reset
         self.daily_loss_paused: bool = False
 
     def is_paused(self) -> bool:
@@ -341,27 +340,7 @@ def run_tick(symbol: str):
                 )
                 regime = None
 
-        # ── 2. ตรวจ daily loss limit ──────────────────────────
-        acc = STATE.client.get_account()
-        STATE.writer.write_account(acc)
-
-        if not STATE.risk.check_daily_loss(acc['balance']):
-            if not STATE.daily_loss_paused:
-                # ✅ FIX: ยิง close_all()+notify() แค่ครั้งแรกที่ตรวจเจอ
-                # (เดิมไม่มี latch → ซ้ำทุก tick จนกว่าจะถึง daily reset
-                #  ตอน 21:00 UTC ทำให้ Telegram spam และเรียก close_all()
-                #  ซ้ำโดยไม่จำเป็นหลาย ๆ ร้อยครั้ง/วัน)
-                STATE.daily_loss_paused = True
-                log.warning("🛑 Daily loss limit — stop all trading today")
-                STATE.executor.close_all()
-                notify(
-                    f"🛑 *Daily Loss Limit Hit*\n"
-                    f"Balance: ${acc['balance']:,.2f}\n"
-                    f"All positions closed"
-                )
-            return
-
-        # ── 3. ดึงราคาล่าสุด ─────────────────────────────────
+        # ── 2. ดึงราคาล่าสุด ─────────────────────────────────
         valid_tfs  = {"M1","M5","M15","M30","H1","H4","D1","W1"}
         primary_tf = STATE.timeframe
         if primary_tf not in valid_tfs:
@@ -684,9 +663,20 @@ def run_all_symbols():
     cb_result = STATE.risk.check_circuit_breaker()
     if cb_result.triggered:
         log.critical(f"⛔ CIRCUIT BREAKER: {cb_result}")
+        # daily loss: ปิด position ทันที + แจ้ง Telegram (ครั้งแรกที่ trigger)
+        if cb_result.level == "daily" and not STATE.daily_loss_paused:
+            STATE.daily_loss_paused = True
+            acc_cb = STATE.client.get_account()
+            STATE.executor.close_all(reason="daily_loss_limit")
+            notify(
+                f"🛑 *Daily Loss Limit Hit*\n"
+                f"Balance: ${acc_cb['balance']:,.2f}\n"
+                f"All positions closed — resume tomorrow"
+            )
         STATE.set_pause(True)
         return
     elif STATE.is_paused():
+        STATE.daily_loss_paused = False   # ปลด latch พร้อม circuit breaker
         STATE.set_pause(False)
 
     # ── [4][4.5][4.7][5] Per-symbol ──────────────────────────

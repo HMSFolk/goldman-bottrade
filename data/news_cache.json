@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-21T22:34:01.553809+00:00",
+  "fetched_utc": "2026-06-22T07:24:35.088965+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -20,13 +20,6 @@
       "country": "NZD",
       "impact": "low",
       "time_utc": "2026-06-22T03:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Foreign Direct Investment ytd/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-06-22T06:02:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -75,7 +68,7 @@
       "title": "ECB President Lagarde Speaks",
       "country": "EUR",
       "impact": "high",
-      "time_utc": "2026-06-22T12:30:00+00:00",
+      "time_utc": "2026-06-22T13:00:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -90,6 +83,13 @@
       "country": "EUR",
       "impact": "low",
       "time_utc": "2026-06-22T14:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "ECB President Lagarde Speaks",
+      "country": "EUR",
+      "impact": "high",
+      "time_utc": "2026-06-22T15:25:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -118,6 +118,13 @@
       "country": "JPY",
       "impact": "high",
       "time_utc": "2026-06-23T05:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Foreign Direct Investment ytd/y",
+      "country": "CNY",
+      "impact": "low",
+      "time_utc": "2026-06-23T06:02:00+00:00",
       "source": "forexfactory"
     },
     {
