@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-22T16:45:25.002358+00:00",
+  "fetched_utc": "2026-06-23T08:01:15.703462+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -20,6 +20,13 @@
       "country": "NZD",
       "impact": "low",
       "time_utc": "2026-06-22T03:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Foreign Direct Investment ytd/y",
+      "country": "CNY",
+      "impact": "low",
+      "time_utc": "2026-06-22T09:06:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -93,6 +100,13 @@
       "source": "forexfactory"
     },
     {
+      "title": "FOMC Member Goolsbee Speaks",
+      "country": "USD",
+      "impact": "high",
+      "time_utc": "2026-06-22T21:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
       "title": "Flash Manufacturing PMI",
       "country": "AUD",
       "impact": "low",
@@ -118,13 +132,6 @@
       "country": "JPY",
       "impact": "high",
       "time_utc": "2026-06-23T05:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Foreign Direct Investment ytd/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-06-23T06:02:00+00:00",
       "source": "forexfactory"
     },
     {

@@ -493,7 +493,7 @@ class RiskManager:
         # ✅ FIX: เดิม hardcode limit=1 → position #2 เปิดไม่ได้แม้ตั้ง
         # max_positions_per_symbol=2 ใน config (ขัดกับ executor._can_add_position
         # ที่อ่าน config ถูกอยู่แล้ว)
-        max_per_sym   = int(self._cfg.get('risk', {}).get('max_positions_per_symbol', 1))
+        max_per_sym   = int(CFG.get('risk', {}).get('max_positions_per_symbol', 1))
         sym_positions = mt5.positions_get(symbol=resolve_symbol(symbol)) or []
         if len(sym_positions) >= max_per_sym:
             return RiskCheckResult(
