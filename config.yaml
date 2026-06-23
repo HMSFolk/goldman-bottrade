@@ -119,8 +119,8 @@ training:
   val_pct  : 0.15
   test_pct : 0.15
   label_method  : "triple_barrier"
-  forward_bars  : 4
-  min_return_pct: 0.0015
+  forward_bars  : 6
+  min_return_pct: 0.0010
   wf_splits     : 5       # walk-forward กี่ splits
   wf_gap_bars   : 96      # เว้นระยะกี่แท่งระหว่าง train/test กัน look-ahead
   xgb_params:

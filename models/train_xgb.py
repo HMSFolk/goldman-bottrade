@@ -356,7 +356,7 @@ def train_xgboost(
     symbol:         str,
     timeframe:      str   = "M15",
     n_splits:       int   = 5,
-    top_features:   int   = 50,
+    top_features:   int   = 368,  # ✅ FIX: 50→368 ให้ตรงกับ LGBM/LSTM (ลด conflict)
     use_hyperopt:   bool  = False,
 ) -> TrainResult:
     """
@@ -693,7 +693,8 @@ if __name__ == "__main__":
                         default=CFG['symbols']['active'])
     parser.add_argument("--timeframe",  default="M15")
     parser.add_argument("--splits",     type=int, default=5)
-    parser.add_argument("--features",   type=int, default=50)
+    parser.add_argument("--features",   type=int, default=368,
+                        help="จำนวน top features (default=368 = ทั้งหมด, ใช้ mutual_info เลือก)")
     parser.add_argument("--hyperopt",   action="store_true")
     args = parser.parse_args()
 
