@@ -420,17 +420,20 @@ def run_tick(symbol: str):
             sig = reg_result.get("signal")
             if (sig and is_valid and
                     CFG.get('strategy_filters', {}).get('use_regime_filter', True)):
-                regime_name = str(regime).lower()
-                sig_dir     = sig.direction   # 1=BUY -1=SELL
+                regime_name = str(regime).lower()   # "📉 trending_down | strength=..."
+                sig_dir     = sig.direction          # 1=BUY -1=SELL
                 for combo in CFG.get('regime_filter', {}).get('blocked_combos', []):
-                    c_regime = combo.get('regime', '').replace('_', ' ')
+                    # ✅ FIX: ไม่ replace '_' → ' ' เพราะ str(regime) มี underscore
+                    # เดิม: "trending down" not in "trending_down" → filter ไม่เคย match
+                    # → VIP Pass bypass ได้ทุกครั้ง → BUY สวนเทรนด์ขาดทุน
+                    c_regime = combo.get('regime', '')   # "trending_down" ตรงๆ
                     c_signal = combo.get('signal', '')
                     if (c_regime in regime_name and
                             ((c_signal == 'BUY'  and sig_dir ==  1) or
                              (c_signal == 'SELL' and sig_dir == -1))):
                         log.info(
                             f"  [{symbol}] VIP Pass blocked by regime filter: "
-                            f"{combo['regime']} + {c_signal}"
+                            f"{c_regime} + {c_signal}"
                         )
                         is_valid = False
                         break

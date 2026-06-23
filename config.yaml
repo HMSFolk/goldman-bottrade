@@ -80,7 +80,7 @@ signal:
   min_confidence                    : 0.50     # confidence ขั้นต่ำที่จะเปิดไม้ (override ได้ที่ symbol_settings)
   lookback_bars                     : 200      # จำนวนแท่งย้อนหลังที่ใช้คำนวณ feature
   cooldown_min                      : 10       # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
-  min_directional_prob              : 0.28     # prob ขั้นต่ำของ BUY/SELL ก่อนพิจารณา override ทิศทาง
+  min_directional_prob              : 0.45   # ✅ FIX: เดิม 0.28 < random(0.33) → override บน noise / ต้องมั่นใจกว่า random 35%
   min_agree_for_directional_override: 2        # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศทางได้
 
 # ── 6. TRADING SESSION (ด่านสำรอง) ────────────────────────────────
@@ -100,9 +100,9 @@ session:
 # จำนวนแท่งราคาที่ดึงเก็บ และ symbol ฝั่ง macro ที่ใช้เป็น feature เสริม
 data:
   history_bars:
-    M15: 10000
-    H1:  5000
-    H4:  2000
+    M15: 50000     # 50000 ÷ 96 = 520 วัน ≈ 2 ปี  ← เปลี่ยนจาก 10000
+    H1:  12000     # 12000 ÷ 24 = 500 วัน ≈ 2 ปี  ← เปลี่ยนจาก 5000
+    H4:  3000
   macro_symbols:
     DXY:    "DX-Y.NYB"
     US10Y:  "^TNX"
@@ -178,7 +178,7 @@ logging:
 # บล็อกเทรดช่วงข่าวสำคัญ (high impact)
 news_filter:
   enabled         : true
-  buffer_minutes  : 15      # บล็อกกี่นาทีก่อน/หลังข่าว
+  buffer_minutes  : 10      # บล็อกกี่นาทีก่อน/หลังข่าว
   high_impact_only: true
   fail_open       : true    # ถ้าดึงข่าวไม่ได้ → ปล่อยให้เทรดต่อ (ไม่บล็อก)
   cache_hours     : 6
@@ -186,8 +186,7 @@ news_filter:
 # ── 14. API KEYS ──────────────────────────────────────────────────────
 api_keys:
   finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0"
-  # Finnhub free plan ไม่รองรับ economic calendar — บอทจะ fallback ไป
-  # ดึงจาก ForexFactory แทนอัตโนมัติ (ฟรี ไม่ต้อง key) ไม่ใช่บั๊ก
+  # Finnhub  ดึงจาก ForexFactory แทนอัตโนมัติ (ฟรี ไม่ต้อง key)
 
 # ── 15. SPREAD FILTER (จุดเดียวของระบบ) ──────────────────────────────
 # spread กว้างเกินนี้ → ไม่ส่ง order (กันโดน slippage ช่วงข่าว/สภาพคล่องต่ำ)
@@ -309,7 +308,7 @@ symbol_settings:
     min_confidence     : 0.55  # เท่า global
     max_session_losses : 2     # แพ้ 2 ครั้ง → หยุด XAU จนกว่าจะ reset session ถัดไป
     risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบกับ symbol อื่น
-    cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้ ก่อนเทรด XAU ใหม่
+    cooldown_after_loss: 10    # พัก 10 นาทีหลังแพ้ ก่อนเทรด XAU ใหม่
   EURUSD:
     min_confidence     : 0.55
     risk_multiplier    : 1.00
