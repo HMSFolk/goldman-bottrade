@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-24T12:07:49.487783+00:00",
+  "fetched_utc": "2026-06-24T18:30:02.732844+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -366,15 +366,15 @@
       "source": "forexfactory"
     },
     {
-      "title": "SNB Quarterly Bulletin",
-      "country": "CHF",
+      "title": "Belgian NBB Business Climate",
+      "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-06-24T13:00:00+00:00",
+      "time_utc": "2026-06-24T12:38:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Belgian NBB Business Climate",
-      "country": "EUR",
+      "title": "SNB Quarterly Bulletin",
+      "country": "CHF",
       "impact": "low",
       "time_utc": "2026-06-24T13:00:00+00:00",
       "source": "forexfactory"
@@ -422,6 +422,13 @@
       "source": "forexfactory"
     },
     {
+      "title": "President Trump Speaks",
+      "country": "USD",
+      "impact": "medium",
+      "time_utc": "2026-06-25T00:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
       "title": "Employment Change",
       "country": "AUD",
       "impact": "high",
@@ -446,7 +453,7 @@
       "title": "NAB Quarterly Business Confidence",
       "country": "AUD",
       "impact": "low",
-      "time_utc": "2026-06-25T01:35:00+00:00",
+      "time_utc": "2026-06-25T01:30:00+00:00",
       "source": "forexfactory"
     },
     {

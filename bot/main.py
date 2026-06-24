@@ -447,6 +447,35 @@ def run_tick(symbol: str):
         else:
             is_valid = setup.is_valid
 
+        # ── 7.5 Regime SELL Override ──────────────────────────
+        # โมเดลที่เทรนบน HOLD=51% มีแนวโน้ม default เป็น HOLD แม้ตลาดลงชัด
+        # ถ้า trending_down + ADX แรง + โมเดลส่ง HOLD → บังคับ SELL
+        if (regime is not None and is_valid is False
+                and "signal" in reg_result):
+            sig = reg_result.get("signal")
+            regime_name = str(regime).lower()
+            regime_adx  = getattr(regime, 'strength', 0)
+            rf_cfg = CFG.get('regime_filter', {})
+            sell_override_adx = rf_cfg.get('sell_override_min_adx', 28)
+
+            if (sig is not None
+                    and sig.direction == 0
+                    and 'trending_down' in regime_name
+                    and regime_adx >= sell_override_adx):
+                # ✅ FIX: raw_proba[0]=sell, [1]=hold, [2]=buy
+                sell_prob = float(sig.raw_proba[0]) if sig.raw_proba is not None else 0.0
+                if sell_prob >= CFG['signal'].get('min_directional_prob', 0.35):
+                    log.info(
+                        f"  [{symbol}] 🔻 Regime SELL Override: "
+                        f"trending_down ADX={regime_adx} "
+                        f"sell_prob={sell_prob:.3f} → force SELL"
+                    )
+                    setup.direction   = -1
+                    setup.confidence  = sell_prob
+                    setup.sl_distance = getattr(sig, 'sl_distance', setup.sl_distance)
+                    setup.tp_distance = getattr(sig, 'tp_distance', setup.tp_distance)
+                    is_valid = True
+
         # ── 7.5 Per-symbol confidence gate (regime path) ─────
         # predict_with_regime ใช้ global threshold ภายใน
         # ถ้า sym threshold สูงกว่า → กรองอีกครั้ง

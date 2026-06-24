@@ -420,8 +420,6 @@ class EnsembleTrader:
 
                 if _buy_p >= _min_dir and _buy_p > _sell_p and _n_buy >= _min_agree_override:
                     soft_direction = 1
-                    # relative confidence: แทน absolute prob (BUY/BUY+SELL)
-                    # สูงกว่า absolute → ผ่าน min_confidence check ได้ดีกว่า
                     confidence_override = _buy_p / _dir_total
                     n_agree = _n_buy
                     log.info(
@@ -429,10 +427,15 @@ class EnsembleTrader:
                         f"(buy={_buy_p:.3f} >= {_min_dir} | "
                         f"rel_conf={confidence_override:.3f})"
                     )
-                elif _sell_p >= _min_dir and _sell_p > _buy_p and _n_sell >= _min_agree_override:
+                elif (_sell_p >= _min_dir and _sell_p > _buy_p):
+                    # ✅ FIX: ลบ n_sell >= min_agree_override ออก
+                    # เดิม: ต้องมี >= 2 โมเดล output SELL direction ก่อน override
+                    # ปัญหา: ตอนทุกโมเดล output HOLD → n_sell=0 → override ไม่ยิงเลย
+                    # แม้ sell_prob ensemble รวมจะ >= threshold
+                    # ใช้ ensemble sell_prob แทน — ถ้า sell_p สูงพอ และ regime confirm → override
                     soft_direction = -1
                     confidence_override = _sell_p / _dir_total
-                    n_agree = _n_sell
+                    n_agree = max(_n_sell, 1)   # อย่างน้อย 1 เพื่อไม่ให้ agree=0
                     log.info(
                         f"{self.symbol}: 🔀 Directional Override → SELL "
                         f"(sell={_sell_p:.3f} >= {_min_dir} | "

@@ -41,7 +41,7 @@ symbols:
 # กฎคุมความเสี่ยงต่อไม้/ต่อวัน
 # (limit ขาดทุนรายวัน → ดูข้อ 16, limit spread → ดูข้อ 15)
 risk:
-  risk_per_trade           : 0.03   # เสี่ยงกี่% ของ balance ต่อไม้
+  risk_per_trade           : 0.01   # เสี่ยงกี่% ของ balance ต่อไม้
   max_open_trades          : 8      # เปิดพร้อมกันได้สูงสุดกี่ไม้ (รวมทุก symbol)
   min_lot                  : 0.01
   max_lot                  : 0.50
@@ -80,7 +80,8 @@ signal:
   min_confidence                    : 0.50     # confidence ขั้นต่ำที่จะเปิดไม้ (override ได้ที่ symbol_settings)
   lookback_bars                     : 200      # จำนวนแท่งย้อนหลังที่ใช้คำนวณ feature
   cooldown_min                      : 10       # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
-  min_directional_prob              : 0.45   # ✅ FIX: เดิม 0.28 < random(0.33) → override บน noise / ต้องมั่นใจกว่า random 35%
+  min_directional_prob              : 0.20   # ✅ FIX: ลดจาก 0.35 — sell_prob จากโมเดลมักอยู่ 0.15-0.25
+                                              # ตอน trending_down (ยัง < random 0.33 แต่ regime ช่วย confirm)
   min_agree_for_directional_override: 2        # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศทางได้
 
 # ── 6. TRADING SESSION (ด่านสำรอง) ────────────────────────────────
@@ -221,7 +222,7 @@ circuit_breaker:
     cooldown_hours: 1      # พักกี่ชั่วโมงก่อนเทรดต่อ
   floating_dd:
     enabled : true
-    max_pct : 5.0      # floating drawdown (ขาดทุนที่ยังไม่ปิด) เกินนี้ → หยุด
+    max_pct : 15.0      # floating drawdown (ขาดทุนที่ยังไม่ปิด) เกินนี้ → หยุด
     warn_pct: 70
 
 # ── 17. REGIME DETECTION ─────────────────────────────────────────────
@@ -262,7 +263,8 @@ strategy_filters:
 # ── 20. REGIME FILTER ────────────────────────────────────────────────
 # กฎละเอียดของ use_regime_filter (ข้อ 19)
 regime_filter:
-  block_counter_trend: true   # ตัวอย่าง: BUY ตอน regime=trending_down → บล็อก
+  block_counter_trend   : true   # บล็อก BUY ตอน trending_down และ SELL ตอน trending_up
+  sell_override_min_adx : 28     # Regime SELL Override: ADX >= นี้ + trending_down → บังคับ SELL ถ้า sell_prob >= min_directional_prob
   min_regime_conf    : 0.40   # ต้องมั่นใจ regime >= 40% ถึงจะใช้ filter นี้ตัดสิน
   blocked_combos:
     - {regime: trending_down, signal: BUY}
@@ -292,8 +294,8 @@ session_filter:
 # การจัดการ position หลังเปิดไม้แล้ว
 trade_management:
   max_hold_hours      : 4      # ถือเกินกี่ชั่วโมง → ปิดอัตโนมัติ
-  be_after_rr         : 0.5    # กำไรถึง 0.5R → ย้าย SL ไปจุดเท่าทุน (breakeven)
-  partial_close_rr    : 0.4    # กำไรถึง 40% ของ TP → ปิดครึ่ง position
+  be_after_rr         : 0.3    # กำไรถึง 0.5R → ย้าย SL ไปจุดเท่าทุน (breakeven)
+  partial_close_rr    : 0.3    # กำไรถึง 40% ของ TP → ปิดครึ่ง position
   partial_close_pct   : 0.50
   enable_time_exit    : true
   enable_breakeven    : true
@@ -307,22 +309,22 @@ pyramiding:
 # Override ค่า global (ข้อ 3, 5) เป็นรายตัว — ใช้ที่ bot/main.py และ bot/risk_manager.py
 symbol_settings:
   XAUUSD:
-    min_confidence     : 0.55  # เท่า global
-    max_session_losses : 2     # แพ้ 2 ครั้ง → หยุด XAU จนกว่าจะ reset session ถัดไป
+    min_confidence     : 0.52  # เท่า global
+    max_session_losses : 3     # แพ้ 3 ครั้ง → หยุด XAU จนกว่าจะ reset session ถัดไป
     risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบกับ symbol อื่น
     cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้ ก่อนเทรด XAU ใหม่
   EURUSD:
-    min_confidence     : 0.55
+    min_confidence     : 0.52
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
   GBPUSD:
-    min_confidence     : 0.55
+    min_confidence     : 0.52
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
   _default:                    # ใช้กับ symbol ที่ไม่ได้ระบุไว้ด้านบน
-    min_confidence     : 0.55
+    min_confidence     : 0.52
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
