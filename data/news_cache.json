@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-24T18:30:02.732844+00:00",
+  "fetched_utc": "2026-06-24T21:56:50.649368+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -453,7 +453,7 @@
       "title": "NAB Quarterly Business Confidence",
       "country": "AUD",
       "impact": "low",
-      "time_utc": "2026-06-25T01:30:00+00:00",
+      "time_utc": "2026-06-25T01:35:00+00:00",
       "source": "forexfactory"
     },
     {
