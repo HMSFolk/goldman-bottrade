@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-23T14:06:19.592551+00:00",
+  "fetched_utc": "2026-06-24T08:23:04.509971+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -251,6 +251,13 @@
       "country": "GBP",
       "impact": "low",
       "time_utc": "2026-06-23T17:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "President Trump Speaks",
+      "country": "USD",
+      "impact": "medium",
+      "time_utc": "2026-06-23T18:05:00+00:00",
       "source": "forexfactory"
     },
     {

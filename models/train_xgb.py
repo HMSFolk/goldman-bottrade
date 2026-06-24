@@ -196,12 +196,16 @@ def select_top_features(
     """
     log.info(f"Feature selection: {len(X.columns)} → {top_n} features...")
 
-    # แปลง label เป็น binary (BUY vs อื่น) สำหรับ MI
-    y_binary = (y == 1).astype(int)
+    # ✅ FIX: เดิมใช้ y_binary = (y==1) → หา features ที่ predict BUY อย่างเดียว
+    # ทำให้ SELL recall = 0% (XGB ไม่รู้จัก SELL เลย)
+    # แก้เป็น multi-class MI บน 3 class จริง แล้วรวม score
+    from sklearn.preprocessing import LabelEncoder
+    le_mi  = LabelEncoder()
+    y_enc  = le_mi.fit_transform(y)   # -1,0,1 → 0,1,2
 
     mi_scores = mutual_info_classif(
         X.fillna(0),
-        y_binary,
+        y_enc,                         # ← 3 class แทน binary
         random_state = 42,
         n_neighbors  = 5,
     )
@@ -356,7 +360,7 @@ def train_xgboost(
     symbol:         str,
     timeframe:      str   = "M15",
     n_splits:       int   = 5,
-    top_features:   int   = 368,  # ✅ FIX: 50→368 ให้ตรงกับ LGBM/LSTM (ลด conflict)
+    top_features:   int   = 80,   # ✅ FIX: 50→80 ใช้คู่กับ 3-class MI ที่แก้ด้านบน
     use_hyperopt:   bool  = False,
 ) -> TrainResult:
     """
@@ -693,8 +697,7 @@ if __name__ == "__main__":
                         default=CFG['symbols']['active'])
     parser.add_argument("--timeframe",  default="M15")
     parser.add_argument("--splits",     type=int, default=5)
-    parser.add_argument("--features",   type=int, default=368,
-                        help="จำนวน top features (default=368 = ทั้งหมด, ใช้ mutual_info เลือก)")
+    parser.add_argument("--features",   type=int, default=50)
     parser.add_argument("--hyperopt",   action="store_true")
     args = parser.parse_args()
 
