@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-24T08:23:04.509971+00:00",
+  "fetched_utc": "2026-06-24T12:07:49.487783+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -341,7 +341,7 @@
       "title": "German 10-y Bond Auction",
       "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-06-24T09:42:00+00:00",
+      "time_utc": "2026-06-24T09:40:00+00:00",
       "source": "forexfactory"
     },
     {

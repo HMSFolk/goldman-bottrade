@@ -697,7 +697,7 @@ if __name__ == "__main__":
                         default=CFG['symbols']['active'])
     parser.add_argument("--timeframe",  default="M15")
     parser.add_argument("--splits",     type=int, default=5)
-    parser.add_argument("--features",   type=int, default=50)
+    parser.add_argument("--features",   type=int, default=80)
     parser.add_argument("--hyperopt",   action="store_true")
     args = parser.parse_args()
 
