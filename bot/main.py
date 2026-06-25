@@ -494,6 +494,22 @@ def run_tick(symbol: str):
 
         # ── 8. Send Order ─────────────────────────────────────
         if is_valid:
+            # ✅ FIX CRITICAL: ใช้ทิศทางจาก ensemble ไม่ใช่ strategy_v1
+            # bug เดิม: sig.direction=-1(SELL) แต่ setup.direction=1(BUY) → ส่ง BUY ผิด
+            if regime is not None and "signal" in reg_result and reg_result["signal"].direction != 0:
+                order_direction = reg_result["signal"].direction
+            else:
+                order_direction = setup.direction
+
+            # HARD RULE: ห้าม BUY เด็ดขาดตอน trending_down, ห้าม SELL ตอน trending_up
+            # ไม่มีข้อยกเว้น VIP Pass หรือ Override ใดๆ ทั้งสิ้น
+            regime_name_hard = str(regime).lower() if regime is not None else ""
+            if order_direction == 1 and 'trending_down' in regime_name_hard:
+                log.info(f"  [{symbol}] ⛔ HARD BLOCK: BUY in trending_down")
+                return
+            if order_direction == -1 and 'trending_up' in regime_name_hard:
+                log.info(f"  [{symbol}] ⛔ HARD BLOCK: SELL in trending_up")
+                return
             # ✅ FIX: ดึง n_agree จาก path ที่ใช้จริง แล้วส่งไป executor
             # เดิมไม่ส่งเลย → default=0 → _can_add_position ข้าม agree check
             if regime is not None and "signal" in reg_result:
@@ -509,7 +525,7 @@ def run_tick(symbol: str):
 
             result = STATE.executor.send_order(
                 symbol            = symbol,
-                direction         = setup.direction,
+                direction         = order_direction,
                 sl_distance       = setup.sl_distance,
                 tp_distance       = setup.tp_distance,
                 confidence        = setup.confidence,

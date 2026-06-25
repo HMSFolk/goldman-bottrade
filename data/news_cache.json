@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-24T21:56:50.649368+00:00",
+  "fetched_utc": "2026-06-25T13:43:48.232890+00:00",
   "events": [
     {
       "title": "1-y Loan Prime Rate",
@@ -453,7 +453,7 @@
       "title": "NAB Quarterly Business Confidence",
       "country": "AUD",
       "impact": "low",
-      "time_utc": "2026-06-25T01:35:00+00:00",
+      "time_utc": "2026-06-25T03:50:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -534,10 +534,17 @@
       "source": "forexfactory"
     },
     {
+      "title": "FOMC Member Bowman Speaks",
+      "country": "USD",
+      "impact": "high",
+      "time_utc": "2026-06-25T12:45:00+00:00",
+      "source": "forexfactory"
+    },
+    {
       "title": "CB Leading Index m/m",
       "country": "CNY",
       "impact": "low",
-      "time_utc": "2026-06-25T13:00:00+00:00",
+      "time_utc": "2026-06-25T13:04:00+00:00",
       "source": "forexfactory"
     },
     {
