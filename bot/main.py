@@ -103,6 +103,7 @@ def _shadow_log(symbol: str, setup, df, reason: str, regime=None) -> None:
             return
         import json as _json
         from pathlib import Path as _Path
+        _ROOT = Path(__file__).resolve().parent.parent
         price = float(df["close"].iloc[-1]) if "close" in df.columns else None
         rec = {
             "ts"        : datetime.now(timezone.utc).isoformat(),

@@ -87,9 +87,9 @@ session:
 # จำนวนแท่งที่ดึงเก็บ + symbol ฝั่ง macro ที่ใช้เป็น feature เสริม
 data:
   history_bars:
-    M15: 10000
-    H1:  5000
-    H4:  2000
+    M15: 50000
+    H1:  12000
+    H4:  4000
   macro_symbols:
     DXY:    "DX-Y.NYB"
     US10Y:  "^TNX"
