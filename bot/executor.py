@@ -457,6 +457,15 @@ class OrderExecutor:
 
         # ราคาปัจจุบัน
         tick  = mt5.symbol_info_tick(pos.symbol)
+        # ✅ FIX (2026-06-29): เดิมไม่เช็ค tick=None → tick.bid crash (AttributeError)
+        #   ตอนตลาดปิด/ไม่มีราคา ให้คืน CloseResult fail แทนพังทั้ง loop
+        if tick is None:
+            return CloseResult(
+                success   = False,
+                ticket    = ticket,
+                symbol    = pos.symbol,
+                error_msg = "ไม่มีข้อมูล tick (ตลาดปิด/ดึงราคาไม่ได้) — ปิดไม่ได้",
+            )
         close_price = (
             tick.bid if pos.type == 0   # BUY ปิดที่ bid
             else tick.ask               # SELL ปิดที่ ask

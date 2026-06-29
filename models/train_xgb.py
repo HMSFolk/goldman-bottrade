@@ -660,9 +660,12 @@ def predict(
     model    = payload['model']
     features = payload['features']
 
-    # เอาเฉพาะ feature ที่โมเดลรู้จัก
-    avail    = [f for f in features if f in df.columns]
-    X_live   = df[avail].tail(1).fillna(0)
+    # ✅ FIX (2026-06-29): reindex ให้ครบ feature ตอนเทรน "ทุกตัว+ลำดับเดิม"
+    #   เดิม avail = [f ... if f in df.columns] = ตัด feature ที่หายทิ้ง →
+    #   X_live เหลือ < n_train → XGBoost raise "feature_names mismatch" →
+    #   predict ล้ม → ensemble มองว่าโมเดลใช้ไม่ได้ (เทรดด้วยโมเดลน้อยลง)
+    #   reindex เติม feature ที่หายด้วย 0 (neutral) ให้ shape/ลำดับตรงเสมอ
+    X_live   = df.reindex(columns=features).tail(1).fillna(0)
 
     proba    = model.predict_proba(X_live)[0]   # [sell, hold, buy]
     pred_idx = proba.argmax()

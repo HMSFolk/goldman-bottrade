@@ -5,6 +5,16 @@ Strategy V1 — Production
 สถานะ: PRODUCTION — ห้ามแก้ไขขณะบอทรันอยู่
 ผ่าน backtest: 2023-01-01 → 2024-12-31
 Sharpe: 1.43 | MaxDD: 12.1% | WinRate: 52.3% | PF: 1.47
+
+⚠️ AUDIT WARNING (2026-06-28): ตัวเลข backtest ด้านบน "ไม่ได้" วัดระบบที่ deploy จริง
+   models/backtest.py วัดแบบ:
+     - long-only (entries=BUY, exits=SELL → SELL = ปิดไม้ ไม่ใช่ short)
+     - SL/TP คงที่ 0.5%/1.0% → RR = 2.0  (ไม่ใช่ tp_ratio จาก config)
+     - min_conf = 0.62  (ไม่ใช่ 0.52 ที่ใช้จริง)
+   ระบบจริงเป็น long+short, ATR-based SL, conf 0.52
+   → WR 52.3% นั้นวัดที่ RR 2.0 (คุ้มทุนที่ 33%) จึงเป็นบวก
+     แต่พอ deploy ที่ RR 0.7 (คุ้มทุน 59%) กลายเป็นขาดทุน
+   อย่าใช้ตัวเลขชุดนี้ตัดสินใจ deploy จนกว่าจะมี backtest ที่ตรงกับระบบจริง
 Deploy date: 2025-05-25
 ════════════════════════════════════════════════════════════
 
@@ -477,7 +487,7 @@ class StrategyV1:
             sl_mult *= 1.1
 
         sl_dist  = atr_avg * sl_mult
-        tp_ratio = CFG['order']['tp_ratio']   # default 2.0
+        tp_ratio = CFG['order']['tp_ratio']   # อ่านจาก config (ปัจจุบัน 1.8)
         tp_dist  = sl_dist * tp_ratio
 
         # Sanity check — SL ไม่ควรเกิน 3% ของราคา

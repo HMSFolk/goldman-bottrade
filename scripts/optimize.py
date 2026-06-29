@@ -6,7 +6,7 @@ import numpy as np
 from xgboost import XGBClassifier
 from sklearn.preprocessing import LabelEncoder # ✅ เพิ่มเพื่อจัดระเบียบคลาส [0, 1, 2]
 
-def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 20): # ปรับเป็น 20 รอบก่อนเพื่อให้รันเช็กได้ไวขึ้นครับ
+def optimize_strategy(symbol: str = "XAUUSD", n_trials: int = 20):  # ✅ FIX: canonical (parquet เซฟชื่อนี้) # ปรับเป็น 20 รอบก่อนเพื่อให้รันเช็กได้ไวขึ้นครับ
     df = pd.read_parquet(f"data/processed/{symbol}_M15_features.parquet")
 
     # ✅ FIX: ล้างค่า NaN ในช่อง label ออกก่อนป้องกันระบบรวน
@@ -100,6 +100,6 @@ def optimize_strategy(symbol: str = "XAUUSDm", n_trials: int = 20): # ปรั�
 if __name__ == "__main__":
     print("⏳ Starting SL/TP Hyperparameter Tuning with Optuna...")
     try:
-        optimize_strategy(symbol="XAUUSDm", n_trials=20)
+        optimize_strategy(symbol="XAUUSD", n_trials=20)
     except Exception as e:
         print(f"❌ ระบบ Optuna หยุดทำงานเนื่องจาก: {e}")

@@ -84,6 +84,46 @@ from features.regime     import RegimeDetector
 
 
 # ══════════════════════════════════════════════════════════════
+# Shadow Log — บันทึกไม้ที่ "เกือบเทรด" แต่โดนตัด (ไม่เสียเงินจริง)
+# ✅ NEW (2026-06-29): เปิด/ปิดผ่าน config.logging.shadow_trades
+#   เป้า: เก็บ directional signal ที่โดน gate ตัด (conf เฉียด, ensemble_hold,
+#   hard-block ฯลฯ) พร้อมราคา ณ ขณะนั้น + SL/TP ที่ "ถ้าเทรดจะได้"
+#   เอาไป backtest ทีหลังว่า "ไม้ที่ตัดทิ้งจะกำไรหรือขาดทุน" = วัด edge /
+#   หาบั๊ก gate โดยไม่ต้องเสียเงินเทรดจริง
+#   ⚠️ เป็น side-channel ล้วน — ไม่แตะ logic เทรดจริงเลย
+# ══════════════════════════════════════════════════════════════
+def _shadow_log(symbol: str, setup, df, reason: str, regime=None) -> None:
+    """บันทึกไม้ที่ถูกตัดลง logs/shadow_trades.jsonl (best-effort, ไม่ throw)"""
+    try:
+        if not CFG.get("logging", {}).get("shadow_trades", False):
+            return
+        # เฉพาะไม้ที่มีทิศทางจริง (ข้าม HOLD ล้วน — ไม่มีอะไรให้วัด)
+        direction = int(getattr(setup, "direction", 0) or 0)
+        if direction == 0:
+            return
+        import json as _json
+        from pathlib import Path as _Path
+        price = float(df["close"].iloc[-1]) if "close" in df.columns else None
+        rec = {
+            "ts"        : datetime.now(timezone.utc).isoformat(),
+            "symbol"    : symbol,
+            "direction" : "BUY" if direction == 1 else "SELL",
+            "confidence": round(float(getattr(setup, "confidence", 0.0)), 4),
+            "price"     : price,
+            "sl_dist"   : float(getattr(setup, "sl_distance", 0.0) or 0.0),
+            "tp_dist"   : float(getattr(setup, "tp_distance", 0.0) or 0.0),
+            "regime"    : str(regime).split("|")[0].strip() if regime is not None else None,
+            "skip_reason": reason,
+        }
+        out = _ROOT / CFG.get("paths", {}).get("logs", "logs") / "shadow_trades.jsonl"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.debug(f"_shadow_log error (non-fatal): {e}")
+
+
+# ══════════════════════════════════════════════════════════════
 # Bot State
 # ══════════════════════════════════════════════════════════════
 class BotState:
@@ -383,6 +423,9 @@ def run_tick(symbol: str):
                 f"[{symbol}] conf {setup.confidence:.3f} < "
                 f"sym threshold {sym_cfg['min_confidence']:.3f} → skip"
             )
+            _shadow_log(symbol, setup, df,
+                        reason=f"conf_below_sym_threshold({sym_cfg['min_confidence']})",
+                        regime=regime)
             return
 
         # ── 6. Cooldown Check ─────────────────────────────────
@@ -456,25 +499,45 @@ def run_tick(symbol: str):
             regime_name = str(regime).lower()
             regime_adx  = getattr(regime, 'strength', 0)
             rf_cfg = CFG.get('regime_filter', {})
-            sell_override_adx = rf_cfg.get('sell_override_min_adx', 28)
+            # ✅ FIX (2026-06-29): เคารพ toggle sell_override_enabled
+            #    (เดิมเป็น dead config — ตั้ง false ก็ไม่ปิด)
+            sell_override_on   = rf_cfg.get('sell_override_enabled', True)
+            sell_override_adx  = rf_cfg.get('sell_override_min_adx', 28)
+            # ✅ FIX: ใช้ sell_override_min_prob (0.45) แทน min_directional_prob (0.20)
+            #    เดิมยิงที่ 0.20 = หลวมเกินไป + เป็น path เดียวที่ bypass agree gate
+            sell_override_prob = rf_cfg.get('sell_override_min_prob', 0.45)
+            # ✅ FIX: agree gate — _weighted_combine (live regime path) ไม่มี
+            #    directional override/agree gate ในตัว → main.py override เคย
+            #    ปลุก SELL ที่ ensemble.predict() veto เพราะ n_sell<2 (agree=1 noise)
+            #    ตอนนี้ gate ด้วย n_sell ที่ EnsembleSignal ส่งออกมา
+            min_agree = CFG['signal'].get('min_agree_for_directional_override', 2)
+            n_sell    = getattr(sig, 'n_sell', 0)
 
-            if (sig is not None
+            if (sell_override_on
+                    and sig is not None
                     and sig.direction == 0
                     and 'trending_down' in regime_name
                     and regime_adx >= sell_override_adx):
-                # ✅ FIX: raw_proba[0]=sell, [1]=hold, [2]=buy
+                # raw_proba[0]=sell, [1]=hold, [2]=buy
                 sell_prob = float(sig.raw_proba[0]) if sig.raw_proba is not None else 0.0
-                if sell_prob >= CFG['signal'].get('min_directional_prob', 0.35):
+                if sell_prob >= sell_override_prob and n_sell >= min_agree:
                     log.info(
                         f"  [{symbol}] 🔻 Regime SELL Override: "
                         f"trending_down ADX={regime_adx} "
-                        f"sell_prob={sell_prob:.3f} → force SELL"
+                        f"sell_prob={sell_prob:.3f} (>={sell_override_prob}) "
+                        f"n_sell={n_sell}/{min_agree} → force SELL"
                     )
                     setup.direction   = -1
                     setup.confidence  = sell_prob
                     setup.sl_distance = getattr(sig, 'sl_distance', setup.sl_distance)
                     setup.tp_distance = getattr(sig, 'tp_distance', setup.tp_distance)
                     is_valid = True
+                else:
+                    log.info(
+                        f"  [{symbol}] SELL override declined: "
+                        f"sell_prob={sell_prob:.3f} (need >={sell_override_prob}) | "
+                        f"n_sell={n_sell} (need >={min_agree})"
+                    )
 
         # ── 7.5 Per-symbol confidence gate (regime path) ─────
         # predict_with_regime ใช้ global threshold ภายใน
@@ -506,9 +569,15 @@ def run_tick(symbol: str):
             regime_name_hard = str(regime).lower() if regime is not None else ""
             if order_direction == 1 and 'trending_down' in regime_name_hard:
                 log.info(f"  [{symbol}] ⛔ HARD BLOCK: BUY in trending_down")
+                setup.direction = order_direction
+                _shadow_log(symbol, setup, df,
+                            reason="hard_block_buy_in_trending_down", regime=regime)
                 return
             if order_direction == -1 and 'trending_up' in regime_name_hard:
                 log.info(f"  [{symbol}] ⛔ HARD BLOCK: SELL in trending_up")
+                setup.direction = order_direction
+                _shadow_log(symbol, setup, df,
+                            reason="hard_block_sell_in_trending_up", regime=regime)
                 return
             # ✅ FIX: ดึง n_agree จาก path ที่ใช้จริง แล้วส่งไป executor
             # เดิมไม่ส่งเลย → default=0 → _can_add_position ข้าม agree check

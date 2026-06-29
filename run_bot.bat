@@ -239,16 +239,21 @@ echo  Backtest + Deploy Checklist
 echo.
 echo.
 echo  Options:
-echo   1. Deploy Checklist (recommended before live)
-echo   2. Full Backtest (ensemble)
-echo   3. Optimize SL/TP (Optuna)
-echo   4. Walk-Forward only
+echo   1. Event-Driven Backtest (NEW -- ตรง live: long+short, RR จาก config)
+echo   2. Deploy Checklist (vectorbt -- legacy)
+echo   3. Full Backtest ensemble (vectorbt -- legacy)
+echo   4. Walk-Forward OOS (scripts\walk_forward.py)
+echo   5. Optimize SL/TP Optuna (scripts\optimize.py)
 echo.
-set /p BCHOICE=  Choose (1-4): 
-if "%BCHOICE%"=="1" "%PYTHON%" models\backtest.py --checklist
-if "%BCHOICE%"=="2" "%PYTHON%" models\backtest.py --method ensemble
-if "%BCHOICE%"=="3" "%PYTHON%" models\backtest.py --optimize --trials 200
-if "%BCHOICE%"=="4" "%PYTHON%" models\backtest.py --method xgb
+echo  [หมายเหตุ] ข้อ 1 = backtest ตัวใหม่ที่ใช้ StrategyV1 ตัวเดียวกับบอทจริง
+echo            ข้อ 2-3 เป็น vectorbt ตัวเก่า (long-only RR คงที่ -- ไม่ตรง live)
+echo.
+set /p BCHOICE=  Choose (1-5): 
+if "%BCHOICE%"=="1" "%PYTHON%" models\backtest_engine.py --symbols XAUUSD EURUSD GBPUSD
+if "%BCHOICE%"=="2" "%PYTHON%" models\backtest.py --checklist
+if "%BCHOICE%"=="3" "%PYTHON%" models\backtest.py --method ensemble
+if "%BCHOICE%"=="4" "%PYTHON%" scripts\walk_forward.py
+if "%BCHOICE%"=="5" "%PYTHON%" scripts\optimize.py
 goto DONE
 
 :: ===========================================================

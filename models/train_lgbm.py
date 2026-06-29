@@ -740,8 +740,10 @@ def predict(
     le       = payload['label_encoder']
     features = payload['features']
 
-    avail    = [f for f in features if f in df.columns]
-    X_live   = df[avail].tail(1).fillna(-999)
+    # ✅ FIX (2026-06-29): reindex ทุก feature (เดิมตัด feature หาย → LightGBM
+    #   error "number of features in data != training data") เติมที่หายด้วย -999
+    #   (convention เดิมของ LightGBM ในไฟล์นี้) ให้ shape/ลำดับตรงเสมอ
+    X_live   = df.reindex(columns=features).tail(1).fillna(-999)
 
     proba    = model.predict(X_live)[0]   # shape: (3,)
     pred_idx = int(proba.argmax())

@@ -833,8 +833,12 @@ def predict(
     model, scaler, arch, features = load_model(symbol)
     seq_len  = arch['seq_len']
 
-    avail    = [f for f in features if f in df.columns]
-    X_raw    = df[avail].tail(seq_len + 10).values
+    # ✅ FIX (2026-06-29): reindex ให้ครบ feature ตอนเทรน "ทุกตัว+ลำดับเดิม"
+    #   เดิม avail = [f ... if f in df.columns] = ตัด feature หาย → X_raw
+    #   column ไม่ครบ/ผิดลำดับ → scaler.transform เพี้ยน/error (scaler ฟิตด้วย
+    #   N features ลำดับตายตัว) reindex เติมที่หายด้วย 0 ก่อนเข้า scaler
+    X_df     = df.reindex(columns=features).tail(seq_len + 10).fillna(0)
+    X_raw    = X_df.values
     X_scaled = scaler.transform(X_raw)
     X_scaled = np.nan_to_num(X_scaled, nan=0.0)
 

@@ -30,11 +30,15 @@ def _json_converter(obj):
     if isinstance(obj, np.ndarray):  return obj.tolist()
     return str(obj)   # fallback สำหรับ type อื่นที่ไม่รู้จัก
 
-# โหลดคอนฟิกสากลพร้อมรองรับภาษาไทยอย่างปลอดภัย
-with open("logging.yaml", encoding="utf-8") as f:
-    logging.config.dictConfig(yaml.safe_load(f))
-with open("config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX (2026-06-29): ใช้ setup_logging() + get_config() แทน yaml.safe_load ดิบ
+#   (relative path "logging.yaml"/"config.yaml" เปราะ — พังถ้า CWD ไม่ใช่ root)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from bot.setup_logging import setup_logging
+setup_logging()
+from config import get_config
+CFG = get_config()
 
 log = logging.getLogger("models")
 

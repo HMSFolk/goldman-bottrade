@@ -15,7 +15,9 @@ def check_all() -> bool:
 
     # 1. ระบุคู่เงินที่คุณต้องการตรวจสอบลงไปตรงๆ เลยครับ (มีผลลัพธ์ตรงตามไฟล์ .pkl ในเครื่องคุณ)
     # หากในอนาคตเพิ่มคู่เงินอื่น ค่อยมาพิมพ์เพิ่มใน List นี้ได้ครับ เช่น ["XAUUSDm", "EURUSDm", "GBPUSDm"]
-    symbols = ["XAUUSDm", "EURUSDm", "GBPUSDm"]
+    # ✅ FIX (2026-06-29): เดิม hardcode ["XAUUSDm",...] → หาไฟล์ xgb_XAUUSDm.pkl
+    #   แต่โมเดลเซฟด้วยชื่อ canonical (xgb_XAUUSD.pkl) → รายงาน "missing" ผิดเสมอ
+    symbols = CFG['symbols']['active']
 
     # 2. ตรวจสอบไฟล์โมเดล .pkl ในโฟลเดอร์ models/saved
     models_ok = True
@@ -66,8 +68,14 @@ def check_all() -> bool:
     results['MT5 connection'] = mt5_ok
 
     # 6. ตรวจสอบความปลอดภัยของ Risk Management
+    # ✅ FIX (2026-06-29): risk.max_daily_loss_pct ถูกลบจาก config แล้ว
+    #   (consolidated → circuit_breaker.daily.loss_pct) เดิมบรรทัดนี้ KeyError crash
+    #   หน่วยใหม่เป็น percent เต็ม (5.0 = 5%) ไม่ใช่ fraction → เทียบกับ 10 ไม่ใช่ 0.10
     r = CFG['risk']
-    results['Risk config safe (≤2%/trade)'] = r['risk_per_trade'] <= 0.02 and r['max_daily_loss_pct'] <= 0.10
+    cb_daily_pct = CFG.get('circuit_breaker', {}).get('daily', {}).get('loss_pct', 5.0)
+    results['Risk config safe (≤2%/trade)'] = (
+        r['risk_per_trade'] <= 0.02 and cb_daily_pct <= 10
+    )
 
     results['Database initialized'] = db.exists()
     results['Logs folder exists'] = Path("logs").exists()

@@ -175,6 +175,12 @@ class RegimeDetector:
         self._cache: dict[str, tuple] = {}   # symbol → (timestamp, RegimeState)
         self._cache_ttl_minutes = cfg_r.get("cache_ttl_minutes", 15)
 
+        # ── Hysteresis (กัน regime กระพริบ) ────────────────────
+        # ต้องเห็น regime ใหม่ติดกัน N ครั้งก่อนยอมเปลี่ยน label
+        self._hysteresis_n      = max(1, int(cfg_r.get("hysteresis_confirm", 3)))
+        self._regime_history: dict[str, list[str]]   = {}   # symbol → raw regimes ล่าสุด
+        self._smoothed_regime: dict[str, RegimeState] = {}   # symbol → regime ที่ใช้อยู่จริง
+
     # ══════════════════════════════════════════════════════════
     # Public API
     # ══════════════════════════════════════════════════════════
@@ -247,8 +253,59 @@ class RegimeDetector:
             detected_at = datetime.now(timezone.utc).isoformat(),
         )
 
+        # ── Hysteresis: กัน label กระพริบก่อนส่งออก/cache ──────
+        state = self._apply_hysteresis(symbol, state)
+
         self._set_cache(symbol, state)
         return state
+
+    def _apply_hysteresis(
+        self, symbol: str, new_state: RegimeState
+    ) -> RegimeState:
+        """
+        กัน regime กระพริบ (เช่น trending_down ↔ uncertain ทุก tick)
+
+        หลักการ: คง regime เดิม (sticky) จนกว่าจะเห็น regime ใหม่
+        ติดกันครบ N ครั้ง (hysteresis_confirm) จึงยอมเปลี่ยน label
+        — ป้องกัน HARD BLOCK รั่วตอน label เด้งเป็น uncertain ชั่วขณะ
+
+        ตัวเลข indicator (adx/hurst/strength) ยัง refresh เป็นค่าสดเสมอ
+        เปลี่ยนแค่ field `regime`/`confidence` ที่ถูกถือไว้
+        """
+        hist = self._regime_history.setdefault(symbol, [])
+        hist.append(new_state.regime)
+        if len(hist) > self._hysteresis_n:
+            hist.pop(0)
+
+        prev = self._smoothed_regime.get(symbol)
+
+        # ครั้งแรก หรือ regime ใหม่ตรงกับที่ใช้อยู่ → ยอมรับเลย (refresh ค่าสด)
+        if prev is None or new_state.regime == prev.regime:
+            self._smoothed_regime[symbol] = new_state
+            return new_state
+
+        # regime ต่างจากเดิม → เปลี่ยนได้ต่อเมื่อเห็นค่าใหม่ติดกันครบ N ครั้ง
+        if len(hist) >= self._hysteresis_n and all(
+            r == new_state.regime for r in hist
+        ):
+            self._smoothed_regime[symbol] = new_state
+            return new_state
+
+        # ยังไม่ครบ → คง regime เดิม แต่ refresh ตัวเลข indicator ให้สด
+        held = RegimeState(
+            regime      = prev.regime,
+            strength    = new_state.strength,
+            direction   = new_state.direction,
+            volatility  = new_state.volatility,
+            hurst       = new_state.hurst,
+            adx         = new_state.adx,
+            confidence  = prev.confidence,
+            strategy    = prev.strategy,
+            symbol      = symbol,
+            timeframe   = new_state.timeframe,
+            detected_at = new_state.detected_at,
+        )
+        return held
 
     def detect_from_mt5(
         self,

@@ -80,6 +80,11 @@ class EnsembleSignal:
     conflict_score: float         # ระดับความขัดแย้ง (0=ตรงกัน 1=ขัดทั้งหมด)
     method:         str           # "soft_voting" | "hard_voting" | "regime_weighted"
     blocked_reason: str = ""
+    # ✅ NEW (2026-06-29): จำนวนโมเดลที่โหวตแต่ละทิศ — ใช้ให้ main.py regime
+    #   SELL override gate ด้วย agree (n_sell >= min_agree) เพราะ path
+    #   _weighted_combine ไม่มี directional override/agree gate ในตัว
+    n_sell:         int = 0       # กี่โมเดลโหวต SELL (direction == -1)
+    n_buy:          int = 0       # กี่โมเดลโหวต BUY  (direction ==  1)
 
     @property
     def is_actionable(self) -> bool:
@@ -427,15 +432,18 @@ class EnsembleTrader:
                         f"(buy={_buy_p:.3f} >= {_min_dir} | "
                         f"rel_conf={confidence_override:.3f})"
                     )
-                elif (_sell_p >= _min_dir and _sell_p > _buy_p):
-                    # ✅ FIX: ลบ n_sell >= min_agree_override ออก
-                    # เดิม: ต้องมี >= 2 โมเดล output SELL direction ก่อน override
-                    # ปัญหา: ตอนทุกโมเดล output HOLD → n_sell=0 → override ไม่ยิงเลย
-                    # แม้ sell_prob ensemble รวมจะ >= threshold
-                    # ใช้ ensemble sell_prob แทน — ถ้า sell_p สูงพอ และ regime confirm → override
+                elif (_sell_p >= _min_dir and _sell_p > _buy_p
+                      and _n_sell >= _min_agree_override):
+                    # ⚠️ FIX (2026-06-28): คืนเงื่อนไข _n_sell >= min_agree
+                    # ของเดิมลบออก → SELL override ยิงที่ agree=1/3 ได้
+                    # (เห็นใน log: หลายไม้เข้าที่ agree=1 = เทรดบน noise โมเดลเดียว)
+                    # ตอนนี้ BUY/SELL ใช้เกณฑ์เดียวกัน: ต้อง >= 2/3 โมเดลเห็นตรง
+                    # หมายเหตุ: ถ้าโมเดล bias HOLD จน n_sell มักเป็น 0-1 แล้ว
+                    # override แทบไม่ยิง — นั่นถูกต้องช่วง validation (อย่าเทรด
+                    # บนสัญญาณตัวเดียว) ทางแก้จริงคือ retrain ลด HOLD bias
                     soft_direction = -1
                     confidence_override = _sell_p / _dir_total
-                    n_agree = max(_n_sell, 1)   # อย่างน้อย 1 เพื่อไม่ให้ agree=0
+                    n_agree = _n_sell
                     log.info(
                         f"{self.symbol}: 🔀 Directional Override → SELL "
                         f"(sell={_sell_p:.3f} >= {_min_dir} | "
@@ -493,6 +501,9 @@ class EnsembleTrader:
                 direction = 0  # บังคับ HOLD
 
         # ── 6. Log ────────────────────────────────────────────
+        # ✅ NEW: นับโหวตแต่ละทิศไว้ให้ main.py regime override gate ด้วย agree
+        n_sell_votes = sum(1 for p in avail_preds if p.direction == -1)
+        n_buy_votes  = sum(1 for p in avail_preds if p.direction ==  1)
         signal = EnsembleSignal(
             direction      = direction,
             confidence     = round(confidence, 4),
@@ -503,6 +514,8 @@ class EnsembleTrader:
             conflict_score = round(conflict_score, 4),
             method         = used_method,
             blocked_reason = block_reason,
+            n_sell         = n_sell_votes,
+            n_buy          = n_buy_votes,
         )
 
         log.info(f"{self.symbol}: {signal}")
@@ -698,6 +711,12 @@ class EnsembleTrader:
 
         regime_label = getattr(regime.regime, 'name', str(regime.regime))
 
+        # ✅ NEW: นับโหวตแต่ละทิศ — path นี้คือที่ main.py regime override อ่าน
+        #   (ไม่มี directional override/agree gate ในตัว จึงต้องส่ง n_sell ออกไป
+        #    ให้ main.py gate เอง)
+        n_sell_votes = sum(1 for p in avail_preds if p.direction == -1)
+        n_buy_votes  = sum(1 for p in avail_preds if p.direction ==  1)
+
         return EnsembleSignal(
             direction      = direction,
             confidence     = round(confidence, 4),
@@ -708,6 +727,8 @@ class EnsembleTrader:
             conflict_score = round(conflict_score, 4),
             method         = f"regime_weighted({regime_label})",
             blocked_reason = blocked_reason,
+            n_sell         = n_sell_votes,
+            n_buy          = n_buy_votes,
         )
 
     def _get_model_predictions(

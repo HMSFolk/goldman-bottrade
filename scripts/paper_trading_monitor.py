@@ -8,10 +8,15 @@ import pandas as pd
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import yaml
 
-with open("config.yaml","r", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+# ✅ FIX (2026-06-29): ใช้ get_config() แทน yaml.safe_load ดิบ (relative path
+#   เปราะ — พังถ้า CWD ไม่ใช่ project root) + merge .env ให้ด้วย
+import sys
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from config import get_config
+CFG = get_config()
 
 DB_PATH = Path(CFG['paths']['db'])
 

@@ -415,13 +415,23 @@ class RiskManager:
             f"→ lot={lot:.2f}"
         )
 
-        # ตรวจ actual risk หลัง clamp — ถ้าเกิน 1.5× คืน 0 (ไม่ส่ง order)
+        # ── เพดานความเสี่ยงต่อไม้ (per-symbol) ────────────────
+        # ⚠️ FIX (2026-06-28): แทนเพดาน "risk_amount × 1.5" แบบตายตัว
+        # ด้วยเพดาน % ของพอร์ตที่ตั้งได้รายตัว (symbol_settings.max_risk_pct)
+        # เหตุผล: บัญชีเล็ก + lot ขั้นต่ำ 0.01 → ทองเสี่ยงขั้นต่ำ ~2.5%/ไม้
+        #   เพดาน 1.5% เดิม block ทองทุกไม้ ทั้งที่ 0.01 คือ floor (ลดไม่ได้)
+        # ตอนนี้: ทอง normal/squeeze ผ่าน, ทอง high-vol (เสี่ยงเกินเพดาน) ยัง skip
+        sym_set      = CFG.get('symbol_settings', {})
+        sym_cfg      = sym_set.get(symbol, sym_set.get('_default', {}))
+        max_risk_pct = float(sym_cfg.get('max_risk_pct', self.risk_per_trade * 1.5))
+        max_risk_amt = balance * max_risk_pct
+
         actual_risk = lot * sl_distance * pip_value
-        if actual_risk > risk_amount * 1.5:
+        if actual_risk > max_risk_amt:
             log.warning(
-                f"Lot clamp risk ${actual_risk:.2f} > intended "
-                f"${risk_amount:.2f} × 1.5 — skip order"
-                )
+                f"{symbol}: lot {lot} เสี่ยง ${actual_risk:.2f} > เพดาน "
+                f"${max_risk_amt:.2f} ({max_risk_pct:.1%} ของพอร์ต) — skip order"
+            )
             return 0.0
 
         return lot
