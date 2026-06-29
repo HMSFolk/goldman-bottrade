@@ -30,10 +30,15 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from pathlib import Path
+from config import get_config
+CFG = get_config() # แทนที่การเปิดไฟล์ yaml เอง
 
 log = logging.getLogger("models")
 
-with open("config.yaml", encoding="utf-8") as f:
+#with open("config.yaml", encoding="utf-8") as f:
+#    CFG = yaml.safe_load(f)
+_ROOT = Path(__file__).resolve().parent.parent.parent
+with open(_ROOT / "config.yaml", encoding="utf-8") as f:
     CFG = yaml.safe_load(f)
 
 # ── Version Control ────────────────────────────────────────────
@@ -496,8 +501,18 @@ class StrategyV1:
             sl_dist = max_sl
             tp_dist = sl_dist * tp_ratio
 
+        # เพิ่มเพื่อดึงspread จากconfig.yaml
+        symbol = row.get('symbol', 'default') # สมมติว่ามี symbol หรือถ้าไม่มีต้องส่งเข้ามา
+        sf_lim = CFG.get("spread_filter", {}).get("limits", {})
+        spread = float(sf_lim.get(symbol, sf_lim.get("default", 0.0)))
+
+        atr14    = row.get('atr_14',    0)
+        atr7     = row.get('atr_7',     0)
+        price    = row.get('close',     0)
+        #------------------------------------------
+
         # SL ไม่ควรน้อยกว่า 0.1% ของราคา (ถูก stop ง่ายเกินไป)
-        min_sl   = price * 0.001
+        min_sl   = max(price * 0.001, spread * 2) #ครอบคุม spread 2เท่า
         if sl_dist < min_sl:
             sl_dist = min_sl
             tp_dist = sl_dist * tp_ratio
