@@ -37,8 +37,8 @@ with open("config.yaml", encoding="utf-8") as f:
     CFG = yaml.safe_load(f)
 
 # ── Version Control ────────────────────────────────────────────
-VERSION       = "1.9.1"
-DEPLOY_DATE   = "2026-06-25"
+VERSION       = "2.1.1"
+DEPLOY_DATE   = "2026-06-30"
 BACKTEST_SHARPE    = 1.43
 BACKTEST_MAX_DD    = 12.1
 BACKTEST_WIN_RATE  = 52.3
