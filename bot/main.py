@@ -908,7 +908,7 @@ def _check_config_reload():
     """Hot-reload config.yaml ถ้าไฟล์เปลี่ยน"""
     global CFG
     try:
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).resolve().parent.parent
         yaml_path    = project_root / "config.yaml"
         new_mtime    = yaml_path.stat().st_mtime
 

@@ -31,15 +31,11 @@ import pandas as pd
 from dataclasses import dataclass, field
 from pathlib import Path
 from config import get_config
-CFG = get_config() # แทนที่การเปิดไฟล์ yaml เอง
+CFG = get_config()   # ใช้ config.py (มี env injection + validate) — อย่าอ่าน yaml ตรง
 
 log = logging.getLogger("models")
 
-#with open("config.yaml", encoding="utf-8") as f:
-#    CFG = yaml.safe_load(f)
 _ROOT = Path(__file__).resolve().parent.parent.parent
-with open(_ROOT / "config.yaml", encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
 
 # ── Version Control ────────────────────────────────────────────
 VERSION       = "2.1.1"
@@ -224,7 +220,7 @@ class StrategyV1:
             setup.filters_passed.append("structure_ok")
 
         # ── Step 8: SL/TP Calculation ──────────────────────────
-        sl_dist, tp_dist = self._calc_sl_tp(row, setup.direction, regime)
+        sl_dist, tp_dist = self._calc_sl_tp(row, setup.direction, regime, symbol)
         if sl_dist <= 0 or tp_dist <= 0:
             setup.direction = 0
             setup.filters_failed.append("sl_tp_invalid")
@@ -452,7 +448,8 @@ class StrategyV1:
         self,
         row:       pd.Series,
         direction: int,
-        regime:    str, ) -> tuple[float, float]:
+        regime:    str,
+        symbol:    str = "default", ) -> tuple[float, float]:
         """
         คำนวณ SL/TP แบบ ATR-based dynamic
 
@@ -501,18 +498,13 @@ class StrategyV1:
             sl_dist = max_sl
             tp_dist = sl_dist * tp_ratio
 
-        # เพิ่มเพื่อดึงspread จากconfig.yaml
-        symbol = row.get('symbol', 'default') # สมมติว่ามี symbol หรือถ้าไม่มีต้องส่งเข้ามา
+        # ดึง spread จาก config มาคุม min SL
+        # ดึง spread จาก config มาคุม min SL (ใช้ symbol param ที่ส่งจาก evaluate)
         sf_lim = CFG.get("spread_filter", {}).get("limits", {})
         spread = float(sf_lim.get(symbol, sf_lim.get("default", 0.0)))
 
-        atr14    = row.get('atr_14',    0)
-        atr7     = row.get('atr_7',     0)
-        price    = row.get('close',     0)
-        #------------------------------------------
-
-        # SL ไม่ควรน้อยกว่า 0.1% ของราคา (ถูก stop ง่ายเกินไป)
-        min_sl   = max(price * 0.001, spread * 2) #ครอบคุม spread 2เท่า
+        # SL ไม่ควรน้อยกว่า 0.1% ของราคา (ถูก stop ง่ายเกินไป) และครอบ spread 2 เท่า
+        min_sl   = max(price * 0.001, spread * 2)
         if sl_dist < min_sl:
             sl_dist = min_sl
             tp_dist = sl_dist * tp_ratio

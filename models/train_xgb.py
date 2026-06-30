@@ -183,7 +183,7 @@ def load_and_prepare(
 def select_top_features(
     X: pd.DataFrame,
     y: pd.Series,
-    top_n: int = 50,
+    top_n: int = 80,   # ตรงกับ train_xgboost(top_features=80) — กันสับสนเวลาเรียกตรง
 ) -> list:
     """
     เลือก top N features ด้วย Mutual Information
