@@ -107,31 +107,38 @@ NON_FEATURE_COLS = {
 }
 
 # ── Categorical Encoder ────────────────────────────────────────
-# columns เหล่านี้ถูกสร้างเป็น string → ต้อง encode เป็น int ก่อนส่ง model
-_CAT_COLS = [
-    'trend_cat',
-    'rsi_zone',
-    'vol_regime',
-    'nearest_pivot_level',
-    'price_zone_20',
-]
+_CAT_MAPPINGS = {
+    'trend_cat': {
+        'strong_down': 0, 'weak_down': 1, 'neutral': 2, 
+        'weak_up': 3, 'strong_up': 4, 'UNKNOWN': -1
+    },
+    'rsi_zone': {
+        'extreme_os': 0, 'oversold': 1, 'bearish': 2, 
+        'bullish': 3, 'overbought': 4, 'extreme_ob': 5, 'UNKNOWN': -1
+    },
+    'vol_regime': {
+        'low': 0, 'normal': 1, 'high': 2, 'UNKNOWN': -1
+    },
+    'nearest_pivot_level': {
+        's2': 0, 's1': 1, 'p': 2, 'r1': 3, 'r2': 4, 'UNKNOWN': -1
+    },
+    'price_zone_20': {
+        'very_low': 0, 'low': 1, 'mid': 2, 'high': 3, 'very_high': 4, 'UNKNOWN': -1
+    },
+}
 
 def _encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
     """
     สร้าง *_enc columns จาก categorical string columns
-    เรียกใน build_features() และ build_features_live()
-    เพื่อให้ train และ predict ใช้ features เดียวกันเสมอ
+    ใช้ mapping ตายตัวป้องกัน LabelEncoder mismatch ตอน live
     """
-    from sklearn.preprocessing import LabelEncoder
     import numpy as np
 
-    for col in _CAT_COLS:
+    for col, mapping in _CAT_MAPPINGS.items():
         enc_col = f"{col}_enc"
         if col in df.columns and enc_col not in df.columns:
-            le = LabelEncoder()
-            df[enc_col] = le.fit_transform(
-                df[col].fillna('UNKNOWN').astype(str)
-            ).astype(np.int32)
+            df[enc_col] = df[col].fillna('UNKNOWN').astype(str).map(mapping).fillna(-1).astype(np.int32)
+            
     return df
 
 

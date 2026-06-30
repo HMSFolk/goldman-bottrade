@@ -44,12 +44,9 @@ from data.news_filter import NewsFilter
 
 import schedule
 import MetaTrader5 as mt5
-
-# ✅ FIX BUG-1: ใช้ setup_logging() แทน dictConfig โดยตรง
 from bot.setup_logging import setup_logging
 setup_logging()   # ← ต้องเรียกก่อน import อื่นๆ ทั้งหมด
 
-# ✅ FIX BUG-2+5+7: ใช้ get_config() แทน yaml.safe_load โดยตรง
 from config import get_config, validate_config, reload_config, unresolve_symbol
 CFG = get_config()
 
@@ -92,6 +89,8 @@ from features.regime     import RegimeDetector
 #   หาบั๊ก gate โดยไม่ต้องเสียเงินเทรดจริง
 #   ⚠️ เป็น side-channel ล้วน — ไม่แตะ logic เทรดจริงเลย
 # ══════════════════════════════════════════════════════════════
+
+
 def _shadow_log(symbol: str, setup, df, reason: str, regime=None) -> None:
     """บันทึกไม้ที่ถูกตัดลง logs/shadow_trades.jsonl (best-effort, ไม่ throw)"""
     try:
@@ -320,24 +319,17 @@ def run_tick(symbol: str):
     ราคา → features → session/regime check → predict → order
     """
     t0 = time.time()
-
     try:
         # ── 0. Per-symbol config ──────────────────────────────
         sym_cfg = get_symbol_config(symbol)
 
+        # ── 0.5 Update Trailing Stop ──────────────────────────
+        if CFG.get('trade_management', {}).get('enable_trailing', False):
+            STATE.executor.update_trailing_stop(symbol)
+
         # ── 1. ตรวจ pause flag ────────────────────────────────
         if STATE.is_paused():
             log.info(f"⏸ Bot paused — skip {symbol}")
-            return
-
-        # ── 1.3 Session loss limit (per-symbol) ──────────────
-        cur_losses = STATE.session_losses.get(symbol, 0)
-        max_losses = sym_cfg["max_session_losses"]
-        if cur_losses >= max_losses:
-            log.info(
-                f"[{symbol}] session losses {cur_losses}/{max_losses} "
-                f"→ skip until next session reset"
-            )
             return
 
         # ── 1.5 News Window Check ─────────────────────────────
@@ -359,11 +351,9 @@ def run_tick(symbol: str):
         if STATE.regime_detector is not None:
             try:
                 regime = STATE.regime_detector.detect_from_mt5(
-                    symbol="XAUUSD", timeframe="H4", bars=300
+                    symbol=symbol, timeframe="H4", bars=300
                     # ⚠️ NOTE: hardcode ใช้ XAU เป็น proxy เช็ค regime
-                    # ทุก symbol (ไม่ใช่ bug ของ broker-agnostic แต่เป็น
-                    # design เดิม) — ถ้าตั้งใจให้เช็ค regime ของ symbol
-                    # นั้นๆ เอง ให้เปลี่ยนเป็น symbol=symbol แทน
+
                 )
                 log.info(f"  [{symbol}] Regime: {regime}")
 
@@ -913,6 +903,7 @@ def _check_config_reload():
         new_mtime    = yaml_path.stat().st_mtime
 
         if new_mtime != STATE.config_mtime:
+            old_symbols = STATE.symbols
             CFG = reload_config()
             STATE.config_mtime = new_mtime
             STATE.symbols   = CFG['symbols']['active']
@@ -921,6 +912,19 @@ def _check_config_reload():
                 f"🔄 config.yaml reloaded — "
                 f"symbols={STATE.symbols} tf={STATE.timeframe}"
             )
+            # ⚠️ RiskManager/Strategy/Executor อ่าน config ตอน __init__ แล้ว cache ไว้
+            #   (เช่น self.risk_per_trade) hot-reload อัปเดตแค่ CFG/symbols/timeframe
+            #   ค่าพวกนั้นจะยังเป็นค่าเดิมจนกว่าจะ restart — เตือนให้ผู้ใช้รู้ตัว
+            #   (ไม่ rebuild กลางรันเพราะเสี่ยง state/position หาย)
+            log.warning(
+                "⚠️ config เปลี่ยน: ค่า risk/strategy/executor ที่อ่านตอน start "
+                "จะยังเป็นค่าเดิม — ควร RESTART bot เพื่อให้ค่าใหม่มีผลทั้งหมด"
+            )
+            if set(STATE.symbols) != set(old_symbols):
+                log.warning(
+                    f"⚠️ symbols เปลี่ยน {old_symbols} → {STATE.symbols} "
+                    f"— component บาง symbol อาจยังไม่ init จนกว่าจะ restart"
+                )
     except Exception as e:
         log.warning(f"Config reload error: {e}")
 

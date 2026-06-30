@@ -426,8 +426,7 @@ class OrderExecutor:
     def close_order(
         self,
         ticket:  int,
-        reason:  str = "manual",
-    ) -> CloseResult:
+        reason:  str = "manual", ) -> CloseResult:
         """
         ปิด position เดียวตาม ticket number
 
@@ -499,31 +498,33 @@ class OrderExecutor:
                 error_msg = f"Close failed: {err}",
             )
 
-        # คำนวณ P&L
+        # คำนวณ P&L (รวมค่า Swap ข้ามคืน)
         profit = pos.profit
+        swap = pos.swap
+        net_profit = profit + swap  # กำไรสุทธิ
 
         result = CloseResult(
             success     = True,
             ticket      = ticket,
             symbol      = pos.symbol,
             close_price = raw.price,
-            profit      = profit,
+            profit      = net_profit,  # ส่งกำไรสุทธิไป
         )
 
         log.info(str(result))
 
         # บันทึก trade ที่ปิดแล้ว
         self._record_close(result, pos)
-        self.risk.record_trade(profit)
+        self.risk.record_trade(net_profit)  # ให้ Risk Manager นับรวมยอด Swap ไปด้วย
 
         # Notify
         from bot.notifier import notify
-        icon = "💚" if profit >= 0 else "🔴"
+        icon = "💚" if net_profit >= 0 else "🔴"
         notify(
             f"{icon} *Trade Closed*\n"
             f"#{ticket} {pos.symbol} "
             f"{'BUY' if pos.type==0 else 'SELL'}\n"
-            f"P&L: ${profit:+.2f}\n"
+            f"P&L: ${net_profit:+.2f}\n"
             f"Reason: {reason}"
         )
 
@@ -532,8 +533,7 @@ class OrderExecutor:
     def close_all(
         self,
         symbol: str  = None,
-        reason: str  = "close_all",
-    ) -> list[CloseResult]:
+        reason: str  = "close_all", ) -> list[CloseResult]:
         """
         ปิดทุก position (หรือเฉพาะ symbol)
 
@@ -586,8 +586,7 @@ class OrderExecutor:
         self,
         ticket:    int,
         new_sl:    Optional[float] = None,
-        new_tp:    Optional[float] = None,
-    ) -> bool:
+        new_tp:    Optional[float] = None, ) -> bool:
         """
         แก้ SL/TP ของ position ที่เปิดอยู่
         ใช้สำหรับ trailing stop
@@ -637,29 +636,33 @@ class OrderExecutor:
         """
         อัพเดต trailing stop ทุก tick
         ขยับ SL ตาม ATR เมื่อราคาไปในทิศที่ดี
-
         เรียกจาก bot/main.py ในทุก tick
         """
         # ✅ FIX: symbol เป็นชื่อกลาง ต้อง resolve ก่อนเรียก mt5.*
         mt5_symbol = resolve_symbol(symbol)
         positions  = mt5.positions_get(symbol=mt5_symbol) or []
 
+        if not positions:
+            return  # ถ้าไม่มี position เลยให้จบการทำงานทันที ประหยัด CPU
+
+        tick    = mt5.symbol_info_tick(mt5_symbol)
+        info    = mt5.symbol_info(mt5_symbol)
+        if tick is None or info is None:
+            return
+
+        # ✅ ย้ายการดึง ATR ออกมานอกลูป เพื่อดึงแค่ 1 ครั้งต่อคู่เงิน ไม่ว่าเปิดกี่ไม้
+        atr_pts = self.client.get_atr_points(symbol, period=14)
+        trail   = atr_pts * atr_mult * info.point
+
         for pos in positions:
             if pos.magic != self.magic:
                 continue   # ไม่ใช่ order ของบอทนี้
 
-            tick    = mt5.symbol_info_tick(mt5_symbol)
-            info    = mt5.symbol_info(mt5_symbol)
-            if tick is None or info is None:
-                continue
-
             current = tick.bid if pos.type == 0 else tick.ask
-            atr_pts = self.client.get_atr_points(symbol, period=14)
-            trail   = atr_pts * atr_mult * info.point
 
             if pos.type == 0:   # BUY — ขยับ SL ขึ้น
                 new_sl = current - trail
-                if new_sl > pos.sl + info.point * 5:
+                if new_sl > pos.sl + (info.point * 5):
                     # ขยับได้ถ้า SL ใหม่สูงกว่าเดิมอย่างน้อย 5 points
                     self.modify_sl_tp(pos.ticket, new_sl=round(new_sl, info.digits))
                     log.debug(
@@ -669,7 +672,8 @@ class OrderExecutor:
 
             else:               # SELL — ขยับ SL ลง
                 new_sl = current + trail
-                if new_sl < pos.sl - info.point * 5:
+                if new_sl < pos.sl - (info.point * 5):
+                    # ขยับได้ถ้า SL ใหม่ต่ำกว่าเดิมอย่างน้อย 5 points (สำหรับ Short)
                     self.modify_sl_tp(pos.ticket, new_sl=round(new_sl, info.digits))
                     log.debug(
                         f"Trail SELL #{pos.ticket}: "
@@ -684,8 +688,7 @@ class OrderExecutor:
         symbol    : str,
         direction : str,     # "BUY" | "SELL"
         confidence: float,
-        n_agree   : int,
-    ) -> tuple:
+        n_agree   : int, ) -> tuple:
         """
         ตรวจว่าเพิ่ม position สำหรับ symbol นี้ได้ไหม
 
@@ -805,12 +808,13 @@ class OrderExecutor:
                 'lot'        : pos.volume,
                 'open_price' : pos.price_open,
                 'close_price': result.close_price,
-                'pnl'        : result.profit,
+                'pnl'        : result.profit, # ตอนนี้เป็น Net Profit รวมชาร์จแล้ว
                 'sl'         : pos.sl,
                 'tp'         : pos.tp,
                 'confidence' : 0.0,
                 'comment'    : f"closed",
                 'ticket'     : result.ticket,
+                'swap'       : pos.swap,      # ✅ ส่งค่า swap เข้า Database ด้วย
             })
         except Exception as e:
             log.warning(f"Record close error: {e}")
