@@ -188,19 +188,24 @@ def retrain_all(
         log.info("[8/8] Skipping backtest (--skip-bt)")
         results['backtest'] = "skipped"
     else:
-        log.info("[8/8] Running OOS Backtest & Deploy Checklist verification...")
+        log.info("[8/8] Running OOS Backtest & Deploy Checklist (event-engine ตรง live)...")
         bt_res = {}
         for sym in symbols:
             try:
-                from models.backtest import run_deploy_checklist
-                checklist = run_deploy_checklist(sym, timeframe)
+                # ✅ C-1 (2026-06-29): ใช้ deploy_checklist_v2 บน backtest_engine
+                #   (event-driven, RR จาก config) แทน backtest.run_deploy_checklist เก่า
+                #   ที่เป็น vectorbt long-only → ผลไม่ตรง live (checklist หลอก)
+                from models.backtest_engine import deploy_checklist_v2
+                checklist = deploy_checklist_v2(sym, timeframe)
                 passed     = all(v['pass'] for v in checklist.values()) if isinstance(checklist, dict) else True
                 bt_res[sym] = {
                     'passed': passed,
-                    'grade' : checklist.get('backtest',{}).get('grade','?') if isinstance(checklist, dict) else 'A',
+                    'grade' : checklist.get('backtest',{}).get('grade','?') if isinstance(checklist, dict) else '?',
+                    'expectancy_R': checklist.get('backtest',{}).get('detail',{}).get('expectancy_R','?'),
                 }
                 icon = "✅" if passed else "⚠️"
-                log.info(f"  {icon} Checklist {sym}: {'PASS' if passed else 'PARTIAL'} grade={bt_res[sym]['grade']}")
+                log.info(f"  {icon} Checklist {sym}: {'PASS' if passed else 'PARTIAL'} "
+                         f"grade={bt_res[sym]['grade']} E={bt_res[sym]['expectancy_R']}R")
             except Exception as e:
                 log.error(f"  ❌ Backtest evaluation failed for {sym}: {e}")
                 bt_res[sym] = {'passed': False, 'error': str(e)[:100]}

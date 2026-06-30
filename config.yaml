@@ -309,7 +309,7 @@ symbol_settings:
 training:
   label_method  : "triple_barrier"
   forward_bars  : 6       # มองไปข้างหน้า 6 แท่ง (90 นาที) ให้ราคาขยับถึง threshold
-  min_return_pct: 0.0010  # 0.10% — ลด HOLD (ค่ายิ่งสูง HOLD ยิ่งเยอะ)
+  min_return_pct: 0.0007  # 0.07% (ลดจาก 0.10% — ลด HOLD bias: ตีป้าย BUY/SELL ถี่ขึ้น)
   wf_gap_bars   : 96      # เว้นกี่แท่งระหว่าง train/test กัน look-ahead
   xgb_params:
     n_estimators    : 500

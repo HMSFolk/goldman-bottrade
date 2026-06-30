@@ -334,7 +334,7 @@ def compute_metrics(
 def build_signals_from_strategy(
     df:     pd.DataFrame,
     symbol: str,
-    warmup: int = 200,
+    warmup: int = 250,
     apply_regime_block: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -355,6 +355,11 @@ def build_signals_from_strategy(
         try:
             from features.regime import RegimeDetector
             detector = RegimeDetector()
+            # ✅ FIX (2026-06-30): ปิด cache ตอน backtest — ต้นตอ regime ค้าง "uncertain"
+            #   detect() cache key=symbol + TTL 15 นาที(เวลาจริง) แต่ backtest เดินพันแท่ง
+            #   ในไม่กี่วินาที → แท่งแรก window<min_bars ได้ uncertain → cache → ทุกแท่ง
+            #   ถัดมาดึง uncertain เดิมไม่คำนวณใหม่ ตั้ง ttl=0 ให้ detect ใหม่ทุก bar
+            detector._cache_ttl_minutes = 0
         except Exception as e:
             log.warning(f"RegimeDetector ไม่พร้อม ({e}) — ข้าม regime block")
 
@@ -365,21 +370,30 @@ def build_signals_from_strategy(
 
     for i in range(warmup, n):
         window = df.iloc[: i + 1]
-        setup = strat.evaluate(window, symbol)
+
+        # ✅ FIX (2026-06-30): detect regime ครั้งเดียวต่อ bar ด้วย detector ตัวเดียว
+        #   (hysteresis สะสมต่อเนื่อง = ตรง live) แล้วส่งเข้า evaluate + ใช้ค่าเดียวกัน
+        #   ตอน HARD BLOCK เดิม v1 detect เองอีกตัว + build_signals detect อีกตัว →
+        #   คนละ detector → hysteresis ไม่สะสม → regime ค้าง uncertain ทั้ง backtest
+        regime_state = None
+        if detector is not None:
+            try:
+                regime_state = detector.detect(window, symbol)
+            except Exception:
+                pass
+
+        setup = strat.evaluate(window, symbol, regime=regime_state)
         if not setup.is_valid:
             continue
 
         d = setup.direction
-        # ── HARD BLOCK เหมือน main.py (ตรง live) ──────────────────
-        if detector is not None:
-            try:
-                regime_name = str(detector.detect(window, symbol)).lower()
-                if d == 1 and 'trending_down' in regime_name:
-                    continue   # ห้าม BUY ใน trending_down
-                if d == -1 and 'trending_up' in regime_name:
-                    continue   # ห้าม SELL ใน trending_up
-            except Exception:
-                pass   # regime พัง → ไม่บล็อก (fail-open เหมือน live ที่ regime=None)
+        # ── HARD BLOCK เหมือน main.py (ใช้ regime ตัวเดียวกับที่ส่งเข้า evaluate) ──
+        if regime_state is not None:
+            regime_name = str(regime_state).lower()
+            if d == 1 and 'trending_down' in regime_name:
+                continue   # ห้าม BUY ใน trending_down
+            if d == -1 and 'trending_up' in regime_name:
+                continue   # ห้าม SELL ใน trending_up
 
         direction[i] = d
         sl_dist[i]   = setup.sl_distance
@@ -453,6 +467,184 @@ def run_event_backtest(
     return result
 
 
+# ══════════════════════════════════════════════════════════════════
+# Walk-Forward (OOS) — ใช้ StrategyV1 ตรง live แทน vectorbt ตัวเก่า
+# ══════════════════════════════════════════════════════════════════
+def walk_forward_engine(
+    df:        pd.DataFrame,
+    symbol:    str,
+    n_splits:  int = 5,
+    timeframe: str = "M15",
+) -> dict:
+    """
+    แบ่ง df เป็น n_splits ช่วงเวลาเรียงตามเวลา (ไม่สุ่ม) แล้วรัน event-backtest
+    ทีละช่วง — วัดว่าระบบ "บวกสม่ำเสมอข้ามช่วงเวลา" ไหม (กัน overfit ช่วงเดียว)
+
+    คืน dict: per_fold (list), mean_expectancy_R, consistency (สัดส่วน fold ที่ E>0),
+              is_robust (bool)
+    """
+    n = len(df)
+    fold_size = n // (n_splits + 1)
+    folds = []
+
+    for k in range(1, n_splits + 1):
+        test = df.iloc[k * fold_size : (k + 1) * fold_size]
+        if len(test) < 250:        # เล็กไปไม่พอเทรด
+            continue
+        res = run_event_backtest(test, symbol, timeframe=timeframe)
+        folds.append({
+            "fold":         k,
+            "trades":       res.n_trades,
+            "expectancy_R": res.expectancy_R,
+            "win_rate":     res.win_rate,
+            "return_pct":   res.total_return_pct,
+        })
+
+    if not folds:
+        return {"per_fold": [], "mean_expectancy_R": 0.0,
+                "consistency": 0.0, "is_robust": False}
+
+    pos = sum(1 for f in folds if f["expectancy_R"] > 0)
+    mean_e = sum(f["expectancy_R"] for f in folds) / len(folds)
+    consistency = pos / len(folds)
+    return {
+        "per_fold":          folds,
+        "mean_expectancy_R": round(mean_e, 4),
+        "consistency":       round(consistency, 3),
+        "is_robust":         bool(mean_e > 0 and consistency >= 0.6),
+    }
+
+
+def _grade(expectancy_R: float) -> str:
+    """ตัดเกรดจาก expectancy ต่อไม้ (ตัวชี้ขาดว่าระบบบวกจริงไหม)"""
+    if expectancy_R >= 0.25: return "A"
+    if expectancy_R >= 0.10: return "B"
+    if expectancy_R >= 0.00: return "C"
+    if expectancy_R >= -0.10: return "D"
+    return "F"
+
+
+def deploy_checklist_v2(
+    symbol:    str,
+    timeframe: str = "M15",
+) -> dict:
+    """
+    Deploy checklist บน event-engine ล้วน (แทน backtest.run_deploy_checklist เก่า)
+    ทุกข้อใช้ StrategyV1 + RR จาก config = ตรง live
+
+    6 ข้อตรวจ:
+      1. models_exist     — xgb + lgbm มีครบ
+      2. training_metrics — อ่าน train_report (acc≥50% f1≥40%)
+      3. backtest         — event-backtest เต็มชุด: expectancy_R > 0 + trades≥30
+      4. walk_forward     — OOS: mean E>0 + consistency≥60%
+      5. overfit_check    — train(70%) vs test(30%): E ไม่ต่างเกิน 0.30R
+      6. risk_params      — risk/trade≤2% + daily_loss≤10%
+
+    คืน dict โครงเดียวกับเดิม (retrain_all อ่าน ['backtest']['grade'] + ['pass'] ได้)
+    """
+    import sys
+    from pathlib import Path
+    _R = Path(__file__).resolve().parent.parent
+    if str(_R) not in sys.path:
+        sys.path.insert(0, str(_R))
+    from config import get_config
+    CFG = get_config()
+
+    PROCESSED = _R / CFG["paths"]["data_processed"]
+    MODELS    = _R / CFG["paths"]["models_saved"]
+    REPORTS   = _R / CFG["paths"].get("reports", "reports")
+
+    results = {}
+    df = pd.read_parquet(
+        PROCESSED / f"{symbol}_{timeframe}_features.parquet"
+    ).dropna(subset=["label"])
+
+    # ── 1. โมเดลครบ ──────────────────────────────────────────
+    exist = {
+        "xgb":  (MODELS / f"xgb_{symbol}.pkl").exists(),
+        "lgbm": (MODELS / f"lgbm_{symbol}.pkl").exists(),
+        "lstm": (MODELS / f"lstm_{symbol}.pth").exists(),
+    }
+    results["models_exist"] = {
+        "pass": exist["xgb"] and exist["lgbm"],
+        "detail": exist, "note": "XGB + LGBM ต้องมีอย่างน้อย",
+    }
+
+    # ── 2. Training metrics ──────────────────────────────────
+    tr_path = REPORTS / f"train_report_{symbol}_{timeframe}.json"
+    if tr_path.exists():
+        import json
+        rep = json.loads(tr_path.read_text())
+        ok  = rep.get("mean_accuracy", 0) >= 0.50 and rep.get("mean_f1", 0) >= 0.40
+        results["training_metrics"] = {
+            "pass": ok,
+            "detail": {"accuracy": rep.get("mean_accuracy", 0),
+                       "f1": rep.get("mean_f1", 0)},
+            "note": "acc≥50% และ f1≥40%",
+        }
+    else:
+        results["training_metrics"] = {
+            "pass": False, "detail": "ไม่พบ training report", "note": "รัน train ก่อน",
+        }
+
+    # ── 3. Backtest เต็มชุด (event-driven ตรง live) ──────────
+    bt = run_event_backtest(df, symbol, timeframe=timeframe)
+    results["backtest"] = {
+        "pass":  bool(bt.expectancy_R > 0 and bt.n_trades >= 30),
+        "grade": _grade(bt.expectancy_R),
+        "detail": {
+            "expectancy_R": bt.expectancy_R,
+            "win_rate":     bt.win_rate,
+            "breakeven_wr": bt.breakeven_wr,
+            "profit_factor": bt.profit_factor,
+            "return_pct":   bt.total_return_pct,
+            "max_dd":       bt.max_drawdown_pct,
+            "trades":       bt.n_trades,
+        },
+        "note": "expectancy_R > 0 (บวกจริงที่ RR นี้) + trades≥30",
+    }
+
+    # ── 4. Walk-forward OOS ──────────────────────────────────
+    wf = walk_forward_engine(df, symbol, n_splits=5, timeframe=timeframe)
+    results["walk_forward"] = {
+        "pass": wf["is_robust"],
+        "detail": {"mean_expectancy_R": wf["mean_expectancy_R"],
+                   "consistency": f"{wf['consistency']:.0%}",
+                   "folds": len(wf["per_fold"])},
+        "note": "mean E>0 + consistency≥60%",
+    }
+
+    # ── 5. Overfit check: train(70%) vs test(30%) ────────────
+    split = int(len(df) * 0.70)
+    bt_tr = run_event_backtest(df.iloc[:split], symbol, timeframe=timeframe)
+    bt_te = run_event_backtest(df.iloc[split:], symbol, timeframe=timeframe)
+    e_gap = bt_tr.expectancy_R - bt_te.expectancy_R
+    results["overfit_check"] = {
+        "pass": bool(e_gap < 0.30),
+        "detail": {"train_E": bt_tr.expectancy_R, "test_E": bt_te.expectancy_R,
+                   "gap_R": round(e_gap, 4)},
+        "note": "train E ไม่ดีกว่า test เกิน 0.30R",
+    }
+
+    # ── 6. Risk params ───────────────────────────────────────
+    daily_loss = CFG.get("circuit_breaker", {}).get("daily", {}).get("loss_pct", 5.0) / 100
+    risk_ok = CFG["risk"]["risk_per_trade"] <= 0.02 and daily_loss <= 0.10
+    results["risk_params"] = {
+        "pass": bool(risk_ok),
+        "detail": {"risk_per_trade": CFG["risk"]["risk_per_trade"],
+                   "daily_loss_pct": daily_loss},
+        "note": "risk/trade≤2% + daily_loss≤10%",
+    }
+
+    # ── สรุป ─────────────────────────────────────────────────
+    all_pass = all(v.get("pass") for v in results.values())
+    log.info(f"\n{'='*60}\nDeploy Checklist v2: {symbol} — "
+             f"{'✅ PASS ALL' if all_pass else '⚠️ บางข้อไม่ผ่าน'}\n{'='*60}")
+    for name, r in results.items():
+        log.info(f"  {'✅' if r.get('pass') else '⚠️'} {name}: {r.get('note','')}")
+    return results
+
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -469,7 +661,39 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbols", nargs="+", default=CFG["symbols"]["active"])
     ap.add_argument("--timeframe", default="M15")
+    ap.add_argument("--checklist", action="store_true",
+                    help="รัน deploy checklist v2 (6 ข้อ ตรง live)")
+    ap.add_argument("--walk-forward", action="store_true",
+                    help="รัน walk-forward OOS อย่างเดียว")
     args = ap.parse_args()
+
+    if args.checklist:
+        for sym in args.symbols:
+            print("\n" + "=" * 70)
+            print(f"DEPLOY CHECKLIST v2 — {sym}")
+            print("=" * 70)
+            res = deploy_checklist_v2(sym, args.timeframe)
+            for name, r in res.items():
+                icon = "✅" if r.get("pass") else "⚠️"
+                print(f"  {icon} {name:18} {r.get('detail')}")
+        sys.exit(0)
+
+    if args.walk_forward:
+        for sym in args.symbols:
+            path = PROCESSED / f"{sym}_{args.timeframe}_features.parquet"
+            if not path.exists():
+                print(f"⚠️  ไม่พบ {path} — ข้าม {sym}"); continue
+            df = pd.read_parquet(path).dropna(subset=["label"])
+            print(f"\n=== Walk-Forward OOS: {sym} ===")
+            wf = walk_forward_engine(df, sym, n_splits=5, timeframe=args.timeframe)
+            for f in wf["per_fold"]:
+                print(f"  Fold {f['fold']}: E={f['expectancy_R']:+.3f}R "
+                      f"WR={f['win_rate']:.0f}% trades={f['trades']} "
+                      f"ret={f['return_pct']:+.1f}%")
+            print(f"  → mean E={wf['mean_expectancy_R']:+.3f}R | "
+                  f"consistency={wf['consistency']:.0%} | "
+                  f"{'✅ robust' if wf['is_robust'] else '⚠️ ไม่ robust'}")
+        sys.exit(0)
 
     print("\n" + "=" * 70)
     print("EVENT-DRIVEN BACKTEST (ตรงระบบ live: long+short, RR จาก config)")

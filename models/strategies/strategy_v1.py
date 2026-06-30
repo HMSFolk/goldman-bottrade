@@ -110,6 +110,7 @@ class StrategyV1:
     def __init__(self):
         self._ensemble  = None   # lazy load
         self._loaded_for: dict = {}
+        self._regime_detector = None   # lazy load RegimeDetector (ใช้ใน _step_ensemble)
 
         log.info(
             f"StrategyV1 v{VERSION} | "
@@ -134,7 +135,8 @@ class StrategyV1:
     def evaluate(
         self,
         df:     pd.DataFrame,
-        symbol: str,) -> TradeSetup:
+        symbol: str,
+        regime = None,) -> TradeSetup:
         """
         ประเมินว่าควรเทรดหรือเปล่า
 
@@ -142,12 +144,16 @@ class StrategyV1:
             setup = strategy.evaluate(df, symbol)
             if setup.is_valid:
                 executor.send_order(...)
+
+        regime: ถ้าส่ง RegimeState มา จะใช้เลย (ไม่ detect ซ้ำ) — backtest ส่งมา
+                เพื่อให้ detector ตัวเดียวกัน + hysteresis สะสมต่อเนื่อง = ตรง live
+                ถ้า None → _step_ensemble detect เอง (main.py เรียกแบบนี้)
         """
         setup = TradeSetup()
         row   = df.iloc[-1]
 
         # ── Step 1: ML Ensemble Signal ─────────────────────────
-        ml_signal = self._step_ensemble(df, symbol)
+        ml_signal = self._step_ensemble(df, symbol, regime=regime)
         if ml_signal is None:
             setup.filters_failed.append("ensemble_unavailable")
             return setup
@@ -265,11 +271,44 @@ class StrategyV1:
     # Filter Steps
     # ══════════════════════════════════════════════════════════
     def _step_ensemble(
-        self, df: pd.DataFrame, symbol: str ) -> dict | None:
-        """รัน ML Ensemble และคืน signal dict"""
+        self, df: pd.DataFrame, symbol: str, regime = None ) -> dict | None:
+        """
+        รัน ML Ensemble และคืน signal dict
+
+        ✅ FIX (2026-06-30): ใช้ predict_with_regime (regime-weighted) ให้ตรงกับ
+           live (main.py) ที่เรียก ensemble.predict_with_regime() เดิม _step_ensemble
+           ใช้ predict(method="soft") → backtest/v1 คนละ "สมอง" กับ live →
+           backtest ไม่สะท้อน live จริง ตอนนี้ทั้ง live/backtest/v1 ใช้ path เดียวกัน
+
+           regime: ถ้าส่งมา (จาก backtest) ใช้เลย — detector ตัวเดียว hysteresis ต่อเนื่อง
+                   ถ้า None detect เอง (lazy-load) fallback soft ถ้า detect ไม่ได้
+        """
         try:
             ensemble = self._get_ensemble(symbol)
-            signal   = ensemble.predict(df, method="soft")
+
+            # ถ้า caller ไม่ส่ง regime มา → detect เอง (เหมือน main.py path)
+            if regime is None:
+                try:
+                    if self._regime_detector is None:
+                        from features.regime import RegimeDetector
+                        self._regime_detector = RegimeDetector()
+                    regime = self._regime_detector.detect(df, symbol)
+                except Exception as e:
+                    log.debug(f"{symbol}: regime detect ไม่ได้ ({e}) — fallback soft")
+
+            if regime is not None:
+                reg = ensemble.predict_with_regime(df, regime, symbol)
+                signal = reg["signal"]
+                # ถ้า regime path block → คืน HOLD (direction=0) ให้ evaluate หยุด
+                if not reg["should_trade"]:
+                    return {
+                        'direction': 0, 'confidence': signal.confidence,
+                        'n_agree': signal.n_agree, 'n_models': signal.n_models,
+                        'conflict': signal.conflict_score,
+                    }
+            else:
+                signal = ensemble.predict(df, method="soft")
+
             return {
                 'direction' : signal.direction,
                 'confidence': signal.confidence,
