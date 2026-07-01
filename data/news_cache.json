@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-06-30T23:39:04.461339+00:00",
+  "fetched_utc": "2026-07-01T15:30:04.769255+00:00",
   "events": [
     {
       "title": "RBA Gov Bullock Speaks",
@@ -510,6 +510,13 @@
       "country": "USD",
       "impact": "low",
       "time_utc": "2026-07-01T14:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "President Trump Speaks",
+      "country": "USD",
+      "impact": "medium",
+      "time_utc": "2026-07-01T19:15:00+00:00",
       "source": "forexfactory"
     },
     {
