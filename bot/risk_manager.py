@@ -397,6 +397,7 @@ class RiskManager:
 
         # คำนวณ lot
         lot = risk_amount / (sl_distance * pip_value)
+        lot_ideal = lot   # ✅ lot ตามทฤษฎี (ก่อน step-round/floor) — ใช้เทียบ risk จริง
 
         # ปัดให้ตรงกับ lot_step ของ broker
         lot = round(lot / lot_step) * lot_step
@@ -427,6 +428,24 @@ class RiskManager:
         max_risk_amt = balance * max_risk_pct
 
         actual_risk = lot * sl_distance * pip_value
+
+        # ✅ Transparency (บัญชีเล็ก): แสดง risk จริงทุกไม้ กันโดน floor หลอก
+        #   lot_ideal < lot_min = floor ดัน lot สูงกว่าที่ risk_per_trade ต้องการ
+        #   → risk จริงสูงกว่าที่ตั้ง (เช่น $100 + ทอง 0.01 lot ≈ 8% ไม่ใช่ 1%)
+        #   log เฉยๆ ไม่แตะ lot/skip logic
+        actual_risk_pct = (actual_risk / balance) if balance > 0 else 0.0
+        if lot_ideal < lot_min:
+            log.warning(
+                f"⚠️ {symbol}: lot floor ({lot_min}) ดัน lot จาก {lot_ideal:.4f} → {lot:.2f} "
+                f"| risk จริง ~{actual_risk_pct:.2%} (ตั้งไว้ {self.risk_per_trade:.2%}) "
+                f"| เพดาน {max_risk_pct:.2%}"
+            )
+        else:
+            log.debug(
+                f"{symbol}: risk จริง ~{actual_risk_pct:.2%} "
+                f"(ตั้งไว้ {self.risk_per_trade:.2%})"
+            )
+
         if actual_risk > max_risk_amt:
             log.warning(
                 f"{symbol}: lot {lot} เสี่ยง ${actual_risk:.2f} > เพดาน "

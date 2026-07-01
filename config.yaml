@@ -281,19 +281,23 @@ symbol_settings:
     max_session_losses : 3     # แพ้ 3 ครั้ง → หยุด XAU จน reset session ถัดไป
     risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบ symbol อื่น
     cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้
-    max_risk_pct       : 0.04
+    # ✅ Option 1 (บัญชีเล็ก): 0.04 → 0.02
+    #   ทอง 0.01 lot (floor ลดไม่ได้) เสี่ยง ~2.5% บน $315 / ~8% บน $100
+    #   เพดาน 0.02 < risk จริง → calculate_lot_size คืน 0.0 → ทอง skip ทุกไม้
+    #   = เทรดเฉพาะ FX ที่คุม risk ได้ตรงกว่า
+    max_risk_pct       : 0.02
   EURUSD:
     min_confidence     : 0.52
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
-    max_risk_pct       : 0.015   # FX SL แคบ → คุมแน่นได้ที่ 1.5%
+    max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 บัญชี $100 FX 0.01 lot เสี่ยง ~2% (floor) รับได้
   GBPUSD:
     min_confidence     : 0.52
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
-    max_risk_pct       : 0.015
+    max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 เช่นเดียวกับ EUR
   _default:                    # symbol ที่ไม่ได้ระบุด้านบน
     min_confidence     : 0.52
     risk_multiplier    : 1.00

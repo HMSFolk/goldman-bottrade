@@ -399,7 +399,12 @@ def run_tick(symbol: str):
         )
 
         # ── 5. Strategy Evaluate ──────────────────────────────
-        setup = STATE.strategy.evaluate(df, symbol)
+        # ✅ FIX (2-brain): ส่ง regime ที่ detect แล้ว (บรรทัด ~353, H4/MT5) เข้า evaluate
+        #   เดิม evaluate(df, symbol) ไม่ส่ง regime → _step_ensemble detect เองจาก df
+        #   = คนละ regime กับ predict_with_regime ด้านล่าง → confidence/SL (setup) กับ
+        #   direction (reg_result) มาจากคนละการประเมิน. ส่ง regime เดียวกันเข้าไป →
+        #   ทั้งสอง predict ใช้ input เดียวกัน = ผลตรงกัน (สมองเดียว) + ตรงกับ backtest
+        setup = STATE.strategy.evaluate(df, symbol, regime=regime)
 
         log.info(
             f"{symbol}: {setup} | "
