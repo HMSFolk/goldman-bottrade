@@ -188,6 +188,23 @@ def main(max_bars: int = 96):
         print(f"\n──── {title} ────")
         print(_summary(df, col).to_string(index=False))
 
+    # ── ตามตลาดจริงไหม: regime × direction ──────────────────
+    #   อ่านแนวนอน: ใน regime นั้น สัญญาณไปทางไหน
+    #   trending_down ควรเอียง SELL / trending_up ควรเอียง BUY
+    #   ถ้าทิศเดียวท่วม "ทุก regime" = อคติไม่ขึ้นกับตลาด (ครูยังเอียง)
+    if df["regime"].notna().any():
+        print("\n──── ตามตลาดไหม? (regime × direction) ────")
+        ct = pd.crosstab(df["regime"].fillna("?"), df["direction"], margins=True)
+        print(ct.to_string())
+        # ธงอัตโนมัติ: regime มีเทรนด์ชัดแต่สัญญาณส่วนใหญ่สวนทาง
+        for reg, want in [("trending_down", "SELL"), ("trending_up", "BUY")]:
+            g = df[df["regime"] == reg]
+            if len(g) >= 5:
+                with_trend = (g["direction"] == want).mean()
+                if with_trend < 0.5:
+                    print(f"⚠️ {reg}: สัญญาณตามเทรนด์แค่ {with_trend:.0%} "
+                          f"(ควร >50% มาก) — โมเดลกำลังสวนตลาด")
+
     # ── เฝ้า bias ทิศทาง (คำถามเรื่อง balance) ───────────────
     n_buy  = int((df["direction"] == "BUY").sum())
     n_sell = int((df["direction"] == "SELL").sum())
