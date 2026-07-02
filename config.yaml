@@ -341,7 +341,7 @@ paths:
 
 # toggle log เสริม (level/rotation คุมที่ logging.yaml แยก ไม่ใช่ที่นี่)
 logging:
-  shadow_trades : false   # true = บันทึกไม้ที่โดน gate ตัด → logs/shadow_trades.jsonl
+  shadow_trades : true    # true = บันทึกไม้ที่โดน gate ตัด → logs/shadow_trades.jsonl
                           # (เก็บไว้วัด edge/หาบั๊ก gate โดยไม่เสียเงินจริง)
 
 # Streamlit dashboard

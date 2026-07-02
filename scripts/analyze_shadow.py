@@ -1,181 +1,216 @@
 # scripts/analyze_shadow.py
 """
-Shadow-Trade Analyzer — วัด "edge" ของไม้ที่ระบบอยากเทรดแต่โดน gate ตัด
-════════════════════════════════════════════════════════════════════════
-อ่าน logs/shadow_trades.jsonl (สร้างโดย main._shadow_log เมื่อ
-config.logging.shadow_trades = true) แล้วจำลองว่า "ถ้าเทรดไม้นั้นจริง"
-ราคาจะชน TP หรือ SL ก่อน — โดยดึงแท่ง M15 ย้อนหลังจาก MT5 มาเดินไปข้างหน้า
+วิเคราะห์ shadow trades — ไม้ที่โดน gate ตัด (บันทึกโดย bot/main.py::_shadow_log)
+═══════════════════════════════════════════════════════════════════════
+อ่าน  : logs/shadow_trades.jsonl
+        (fields: ts, symbol, direction, confidence, price, sl_dist,
+                 tp_dist, regime, skip_reason)
+เทียบ : data/raw/{symbol}_M15.parquet — จำลองว่าไม้ที่โดนตัด "ถ้าปล่อยเข้า"
+        จะชน TP หรือ SL ก่อน (เดินแท่งไปข้างหน้าแบบ triple-barrier)
+ออก   : สรุปต่อ skip_reason / conf bucket / regime / direction
+        + reports/shadow_analysis.csv
 
-จุดประสงค์:
-  - วัดว่า gate (conf threshold / hard-block) "ตัดไม้ดีทิ้ง" หรือ "กันไม้แย่"
-  - แยกบั๊กออกจาก "ไม่ควรเทรดจริง" โดยไม่ต้องเสียเงิน demo
-  - ถ้าไม้ที่ถูกตัดมี win-rate/expectancy เป็นบวกสูง = gate เข้มเกินไป (ตัด edge ทิ้ง)
-    ถ้าติดลบ = gate ทำงานถูก (กันไม้แย่)
+ตอบคำถาม:
+  1. gate ตัดไม้ "ดี" ทิ้งไหม → ถ้า expectancy ของไม้ที่ตัด > 0 = threshold แน่นไป
+  2. สัญญาณเอียงข้างไหม → BUY vs SELL ratio ของสัญญาณดิบ (ใช้เฝ้า bias โมเดล)
 
-รัน:  python scripts/analyze_shadow.py [--bars-forward 96] [--reason <substr>]
+⚠️ Timezone: ts ใน shadow = UTC จริง แต่ index ใน parquet = server time
+   ของ broker (UTC+2/+3) ที่ติดป้าย UTC — ต้อง shift ก่อน match ไม่งั้น
+   analyzer จะแอบเห็น "แท่งในอดีต" เป็นอนาคต (lookahead ปลอม)
+   → คำนวณ offset อัตโนมัติจากแท่งล่าสุดเทียบเวลาจริง
 
-⚠️ side-channel ล้วน — อ่านอย่างเดียว ไม่แตะ logic เทรด ไม่ส่ง order
+รัน: python scripts/analyze_shadow.py [--max-bars 96]
 """
 import sys
 import json
 import argparse
 from pathlib import Path
-from collections import defaultdict
+from datetime import datetime, timezone, timedelta
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import pandas as pd
-import MetaTrader5 as mt5
-from config import get_config, resolve_symbol
 
+from config import get_config
 CFG = get_config()
+
 SHADOW_PATH = _ROOT / CFG.get("paths", {}).get("logs", "logs") / "shadow_trades.jsonl"
+RAW_DIR     = _ROOT / CFG.get("paths", {}).get("data_raw", "data/raw")
+REPORTS_DIR = _ROOT / CFG.get("paths", {}).get("reports", "reports")
 
 
-def _connect() -> bool:
-    m = CFG["mt5"]
-    if not mt5.initialize(path=m.get("terminal_path", "")):
-        print(f"❌ MT5 initialize failed: {mt5.last_error()}")
-        return False
-    return mt5.login(int(m["login"]), password=str(m["password"]),
-                     server=str(m["server"]))
-
-
-def _load_records() -> list[dict]:
+def _load_shadow() -> pd.DataFrame:
     if not SHADOW_PATH.exists():
-        print(f"❌ ไม่พบ {SHADOW_PATH}")
-        print("   เปิด config.logging.shadow_trades = true แล้วรันบอทสักพักก่อน")
-        return []
-    recs = []
+        print(f"ไม่พบ {SHADOW_PATH} — ยังไม่มี shadow log "
+              f"(เช็คว่า config logging.shadow_trades: true และบอทรันมาสักพัก)")
+        return pd.DataFrame()
+    rows = []
     with open(SHADOW_PATH, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                recs.append(json.loads(line))
+                rows.append(json.loads(line))
             except json.JSONDecodeError:
-                continue
-    return recs
+                continue   # บรรทัดเสีย (เช่นเขียนค้าง) — ข้าม
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+    df = df.dropna(subset=["ts", "price", "sl_dist", "tp_dist"])
+    df = df[(df["sl_dist"] > 0) & (df["tp_dist"] > 0)]
+    return df.reset_index(drop=True)
 
 
-def _simulate_one(rec: dict, bars_forward: int) -> str | None:
+def _broker_offset_hours(bars: pd.DataFrame) -> int:
     """
-    จำลองไม้เดียว: ดึงแท่ง M15 หลังเวลา signal แล้วเดินไปข้างหน้า
-    คืน 'tp' | 'sl' | 'none' (ไม่ชนใน bars_forward) | None (ดึงข้อมูลไม่ได้)
+    ประมาณ offset ของ server time เทียบ UTC จริง (ชั่วโมงเต็ม)
+    หลัก: แท่ง M15 ล่าสุดในไฟล์ควรปิดไม่เกิน ~ไม่กี่สิบนาทีก่อน "ตอนนี้"
+    ถ้า index ล่าสุดล้ำหน้าเวลาจริง = server time นำอยู่เท่านั้นชั่วโมง
+    (ใช้ได้เมื่อไฟล์เพิ่งถูก update — quick update ทำให้จริงเสมอตอนบอทรัน)
     """
-    direction = 1 if rec.get("direction") == "BUY" else -1
-    entry     = rec.get("price")
-    sl_dist   = rec.get("sl_dist", 0.0)
-    tp_dist   = rec.get("tp_dist", 0.0)
-    if entry is None or sl_dist <= 0 or tp_dist <= 0:
-        return None
-
-    ts = pd.to_datetime(rec["ts"], utc=True)
-    broker_sym = resolve_symbol(rec["symbol"], CFG)
-
-    # ดึงแท่งตั้งแต่เวลา signal เป็นต้นไป
-    rates = mt5.copy_rates_from(broker_sym, mt5.TIMEFRAME_M15,
-                                ts.to_pydatetime(), bars_forward + 2)
-    if rates is None or len(rates) < 2:
-        return None
-
-    df = pd.DataFrame(rates)
-
-    if direction == 1:   # BUY: TP = entry+tp_dist, SL = entry-sl_dist
-        tp_price, sl_price = entry + tp_dist, entry - sl_dist
-    else:                # SELL: TP = entry-tp_dist, SL = entry+sl_dist
-        tp_price, sl_price = entry - tp_dist, entry + sl_dist
-
-    # เดินทีละแท่ง (ข้ามแท่ง signal เอง เริ่มแท่งถัดไป) — นับ SL ก่อนถ้าชนทั้งคู่ (conservative)
-    for _, bar in df.iloc[1:].iterrows():
-        hi, lo = bar["high"], bar["low"]
-        if direction == 1:
-            if lo <= sl_price:
-                return "sl"
-            if hi >= tp_price:
-                return "tp"
-        else:
-            if hi >= sl_price:
-                return "sl"
-            if lo <= tp_price:
-                return "tp"
-    return "none"
+    last = bars.index[-1]
+    now  = pd.Timestamp.now(tz="UTC")
+    diff_h = (last - now).total_seconds() / 3600.0
+    # server นำ UTC: diff เป็นบวก ~1.5–3.5 ชม. → ปัดเป็นชั่วโมงเต็มที่ใกล้สุด
+    off = int(round(diff_h))
+    return max(min(off, 12), -12)   # กันค่าหลุดโลก
 
 
-def analyze(bars_forward: int = 96, reason_filter: str = ""):
-    recs = _load_records()
-    if not recs:
+def _simulate(rec, bars: pd.DataFrame, offset_h: int, max_bars: int):
+    """
+    เดินแท่งหลังสัญญาณ ดูว่าโดน TP หรือ SL ก่อน
+    คืน (outcome, r_multiple): outcome ∈ {win, loss, ambiguous, open, no_data}
+    """
+    sig_time = rec["ts"] + timedelta(hours=offset_h)   # แปลงเป็น "เวลาป้าย" ของ parquet
+    fwd = bars[bars.index > sig_time]
+    if fwd.empty:
+        return "no_data", 0.0
+    fwd = fwd.iloc[:max_bars]
+
+    entry = float(rec["price"])
+    rr    = float(rec["tp_dist"]) / float(rec["sl_dist"])
+    if rec["direction"] == "BUY":
+        tp, sl = entry + rec["tp_dist"], entry - rec["sl_dist"]
+        for _, b in fwd.iterrows():
+            hit_tp, hit_sl = b["high"] >= tp, b["low"] <= sl
+            if hit_tp and hit_sl:
+                return "ambiguous", 0.0     # แท่งเดียวชนทั้งคู่ — ไม่เดา
+            if hit_tp:
+                return "win", rr
+            if hit_sl:
+                return "loss", -1.0
+    else:  # SELL
+        tp, sl = entry - rec["tp_dist"], entry + rec["sl_dist"]
+        for _, b in fwd.iterrows():
+            hit_tp, hit_sl = b["low"] <= tp, b["high"] >= sl
+            if hit_tp and hit_sl:
+                return "ambiguous", 0.0
+            if hit_tp:
+                return "win", rr
+            if hit_sl:
+                return "loss", -1.0
+    # หมดหน้าต่างไม่ชนอะไร — ปิดที่ close สุดท้าย (mark-to-market เป็น R)
+    last_close = float(fwd["close"].iloc[-1])
+    pnl = (last_close - entry) if rec["direction"] == "BUY" else (entry - last_close)
+    return "open", round(pnl / float(rec["sl_dist"]), 3)
+
+
+def _summary(df: pd.DataFrame, by: str) -> pd.DataFrame:
+    """สรุป WR / expectancy ต่อกลุ่ม (นับเฉพาะไม้ที่ตัดสินได้ win/loss)"""
+    rows = []
+    for key, g in df.groupby(by):
+        dec = g[g["outcome"].isin(["win", "loss"])]
+        n_dec = len(dec)
+        wr  = (dec["outcome"] == "win").mean() if n_dec else float("nan")
+        exp = dec["r"].mean() if n_dec else float("nan")
+        rows.append({
+            by: key, "signals": len(g), "decided": n_dec,
+            "win_rate": round(wr * 100, 1) if n_dec else None,
+            "expectancy_R": round(exp, 3) if n_dec else None,
+        })
+    return pd.DataFrame(rows).sort_values("signals", ascending=False)
+
+
+def main(max_bars: int = 96):
+    df = _load_shadow()
+    if df.empty:
         return
-    if reason_filter:
-        recs = [r for r in recs if reason_filter in r.get("skip_reason", "")]
-        print(f"กรองเฉพาะ skip_reason มี '{reason_filter}': {len(recs)} ไม้")
+    print(f"โหลด shadow: {len(df)} สัญญาณ "
+          f"({df['ts'].min():%Y-%m-%d} → {df['ts'].max():%Y-%m-%d})")
 
-    if not _connect():
-        return
-
-    # group ตาม (symbol, skip_reason)
-    buckets = defaultdict(lambda: {"tp": 0, "sl": 0, "none": 0, "skip": 0, "R": []})
-    try:
-        for rec in recs:
-            res = _simulate_one(rec, bars_forward)
-            key = (rec["symbol"], rec.get("skip_reason", "?"))
-            b   = buckets[key]
-            if res is None:
-                b["skip"] += 1
-                continue
-            b[res] += 1
-            rr = (rec.get("tp_dist", 0) / rec.get("sl_dist", 1)) if rec.get("sl_dist") else 0
-            if res == "tp":
-                b["R"].append(rr)
-            elif res == "sl":
-                b["R"].append(-1.0)
-            # 'none' = ไม่ชนใน window → ไม่นับ R
-    finally:
-        mt5.shutdown()
-
-    # รายงาน
-    print(f"\n{'='*72}")
-    print(f"  SHADOW-TRADE EDGE ANALYSIS  (เดินหน้า {bars_forward} แท่ง M15)")
-    print(f"  ไม้ที่ระบบ 'อยากเทรด' แต่โดน gate ตัด — ถ้าเทรดจริงจะเป็นยังไง")
-    print(f"{'='*72}")
-    print(f"  {'Symbol/Reason':<42} {'TP':>4} {'SL':>4} {'WR%':>6} {'E[R]':>7}")
-    print(f"  {'-'*70}")
-
-    grand = {"tp": 0, "sl": 0, "R": []}
-    for (sym, reason), b in sorted(buckets.items()):
-        decided = b["tp"] + b["sl"]
-        if decided == 0:
+    # ── จำลองผลรายไม้ ────────────────────────────────────────
+    outcomes, rs = [], []
+    bars_cache, offset_cache = {}, {}
+    for _, rec in df.iterrows():
+        sym = rec["symbol"]
+        if sym not in bars_cache:
+            p = RAW_DIR / f"{sym}_M15.parquet"
+            if p.exists():
+                b = pd.read_parquet(p).sort_index()
+                bars_cache[sym]   = b
+                offset_cache[sym] = _broker_offset_hours(b)
+                print(f"  {sym}: {len(b)} bars | server-time offset ≈ "
+                      f"{offset_cache[sym]:+d}h (แก้ก่อน match กัน lookahead)")
+            else:
+                bars_cache[sym] = None
+        if bars_cache[sym] is None:
+            outcomes.append("no_data"); rs.append(0.0)
             continue
-        wr  = b["tp"] / decided * 100
-        eR  = sum(b["R"]) / len(b["R"]) if b["R"] else 0.0
-        label = f"{sym} | {reason}"[:42]
-        flag  = " ⚠️EDGE" if eR > 0.15 else (" ✓gate-ok" if eR < -0.1 else "")
-        print(f"  {label:<42} {b['tp']:>4} {b['sl']:>4} {wr:>5.0f}% {eR:>+6.2f}R{flag}")
-        grand["tp"] += b["tp"]; grand["sl"] += b["sl"]; grand["R"] += b["R"]
+        o, r = _simulate(rec, bars_cache[sym], offset_cache[sym], max_bars)
+        outcomes.append(o); rs.append(r)
 
-    print(f"  {'-'*70}")
-    g_dec = grand["tp"] + grand["sl"]
-    if g_dec:
-        g_wr = grand["tp"] / g_dec * 100
-        g_eR = sum(grand["R"]) / len(grand["R"]) if grand["R"] else 0.0
-        print(f"  {'รวมทั้งหมด':<42} {grand['tp']:>4} {grand['sl']:>4} "
-              f"{g_wr:>5.0f}% {g_eR:>+6.2f}R")
-    print(f"{'='*72}")
-    print("  อ่านผล:")
-    print("   E[R] > +0.15  = gate ตัดไม้ 'ดี' ทิ้ง (เข้มเกินไป — ควรผ่อน)")
-    print("   E[R] < -0.10  = gate กันไม้ 'แย่' ได้ถูกต้อง (อย่าผ่อน)")
-    print("   ~0            = ไม่มี edge ชัด (HOLD ถูกแล้ว)")
-    print("  ⚠️ ตัวเลขนี้ยังไม่หักสเปรด/คอมมิชชัน — edge จริงต่ำกว่านี้เล็กน้อย")
+    df["outcome"], df["r"] = outcomes, rs
+    df["conf_bucket"] = pd.cut(
+        df["confidence"],
+        bins=[0, 0.45, 0.50, 0.52, 0.55, 0.60, 1.01],
+        labels=["<0.45", "0.45-0.50", "0.50-0.52", "0.52-0.55", "0.55-0.60", ">0.60"],
+    )
+
+    # ── รายงาน ───────────────────────────────────────────────
+    dec = df[df["outcome"].isin(["win", "loss"])]
+    print("\n════════ ภาพรวมไม้ที่โดนตัด (นับเฉพาะที่ตัดสินได้) ════════")
+    if len(dec):
+        print(f"decided {len(dec)}/{len(df)} | WR={(dec['outcome']=='win').mean():.1%} "
+              f"| expectancy={dec['r'].mean():+.3f}R")
+        print("→ expectancy บวก = gate กำลังตัดไม้ที่โดยรวม 'ชนะ' ทิ้ง (threshold อาจแน่นไป)")
+        print("→ expectancy ลบ = gate ทำหน้าที่ถูกแล้ว (ตัดไม้แพ้)")
+    else:
+        print("ยังไม่มีไม้ที่ตัดสินผลได้ — รอเก็บข้อมูลเพิ่ม")
+
+    for col, title in [("skip_reason", "ตาม skip_reason"),
+                       ("conf_bucket", "ตาม confidence"),
+                       ("regime",      "ตาม regime"),
+                       ("direction",   "ตามทิศทาง")]:
+        print(f"\n──── {title} ────")
+        print(_summary(df, col).to_string(index=False))
+
+    # ── เฝ้า bias ทิศทาง (คำถามเรื่อง balance) ───────────────
+    n_buy  = int((df["direction"] == "BUY").sum())
+    n_sell = int((df["direction"] == "SELL").sum())
+    print("\n──── Signal balance (สัญญาณดิบที่มีทิศ) ────")
+    print(f"BUY={n_buy}  SELL={n_sell}", end="  ")
+    if min(n_buy, n_sell) > 0:
+        ratio = max(n_buy, n_sell) / min(n_buy, n_sell)
+        heavy = "SELL" if n_sell > n_buy else "BUY"
+        flag  = "⚠️ เอียงผิดปกติ — เช็คว่าตลาดช่วงนี้ trend ทางนั้นจริงไหม ถ้าไม่ = ครูยัง bias" \
+                if ratio > 1.8 else "ok (ต่างกันได้ตาม trend ตลาด)"
+        print(f"| ratio={ratio:.2f} เอียง {heavy} → {flag}")
+    else:
+        print("| ยังมีทิศเดียว — เก็บข้อมูลเพิ่มก่อนสรุป")
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORTS_DIR / "shadow_analysis.csv"
+    df.to_csv(out, index=False, encoding="utf-8-sig")
+    print(f"\nบันทึกรายไม้ → {out}")
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--bars-forward", type=int, default=96,
-                   help="เดินหน้าดูกี่แท่ง M15 (default 96 = 1 วัน)")
-    p.add_argument("--reason", type=str, default="",
-                   help="กรองเฉพาะ skip_reason ที่มี substring นี้")
-    args = p.parse_args()
-    analyze(bars_forward=args.bars_forward, reason_filter=args.reason)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--max-bars", type=int, default=96,
+                    help="เดินหน้ากี่แท่ง M15 ก่อนถือว่า open (default 96 = 1 วัน)")
+    args = ap.parse_args()
+    main(max_bars=args.max_bars)

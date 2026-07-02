@@ -38,8 +38,8 @@ log = logging.getLogger("models")
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
 # ── Version Control ────────────────────────────────────────────
-VERSION       = "2.1.1"
-DEPLOY_DATE   = "2026-06-30"
+VERSION       = "2.1.3"
+DEPLOY_DATE   = "2026-07-2"
 BACKTEST_SHARPE    = 1.43
 BACKTEST_MAX_DD    = 12.1
 BACKTEST_WIN_RATE  = 52.3
