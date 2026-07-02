@@ -340,6 +340,14 @@ class RegimeDetector:
                 return RegimeState(symbol=symbol, regime="uncertain",
                                    confidence=0.0)
 
+            # ✅ FIX (2026-07-01): ตัดแท่งสุดท้าย — pos 0 คือแท่งที่ยังไม่ปิด
+            #   regime (ADX/Hurst/direction) เป็นตัวกำหนด "ทิศทาง" ทั้งระบบ
+            #   ถ้าคำนวณบนแท่ง H4 ที่ยังวิ่งอยู่: regime กระพริบตามราคา
+            #   ระหว่างแท่ง + ไม่ตรงกับ backtest ที่เห็นแต่แท่งปิด
+            #   (บั๊กเดียวกับ get_ohlcv/collect_mt5 ที่แก้ไปแล้ว — ประตูที่ 3)
+            if len(rates) > 1:
+                rates = rates[:-1]
+
             df = pd.DataFrame(rates)
             df["time"]  = pd.to_datetime(df["time"], unit="s")
             df = df.rename(columns={

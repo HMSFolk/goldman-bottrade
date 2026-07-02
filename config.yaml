@@ -57,23 +57,10 @@ symbols:
 symbol_map:
   XAUUSD:
     exness     : "XAUUSDm"
-    icmarkets  : "XAUUSD"
-    pepperstone: "XAUUSD"
-    oanda      : "XAU_USD"
-    fxcm       : "XAU/USD"
   EURUSD:
     exness     : "EURUSDm"
-    icmarkets  : "EURUSD"
-    pepperstone: "EURUSD"
-    oanda      : "EUR_USD"
-    fxcm       : "EUR/USD"
   GBPUSD:
     exness     : "GBPUSDm"
-    icmarkets  : "GBPUSD"
-    pepperstone: "GBPUSD"
-    oanda      : "GBP_USD"
-    fxcm       : "GBP/USD"
-
 # จำนวนแท่งราคาที่ดึงเก็บ + symbol ฝั่ง macro ที่ใช้เป็น feature เสริม
 data:
   history_bars:
@@ -114,15 +101,15 @@ circuit_breaker:
   notify_telegram: true
   daily:
     enabled    : true
-    loss_pct   : 5.0      # หยุดถ้าขาดทุน 5% ของ balance ในวันเดียว
+    loss_pct   : 10.0      # หยุดถ้าขาดทุน 5% ของ balance ในวันเดียว
     loss_usd   : null     # ใส่ USD แทน % ได้ถ้าต้องการ
     auto_resume: true     # กลับมาเทรดเองเมื่อพ้นช่วง
   weekly:
     enabled : true
-    loss_pct: 10.0        # หยุดถ้าขาดทุนสะสมเกิน 10% ในสัปดาห์
+    loss_pct: 40.0        # หยุดถ้าขาดทุนสะสมเกิน 10% ในสัปดาห์
   consecutive_losses:
     enabled       : true
-    count         : 5     # แพ้ติดกัน 5 ไม้ → หยุดพัก
+    count         : 10     # แพ้ติดกัน 5 ไม้ → หยุดพัก
     cooldown_hours: 1
   floating_dd:
     enabled : true
@@ -141,7 +128,7 @@ daily_tracking:
 # threshold การตัดสินใจของโมเดล
 signal:
   active_model                      : "ensemble"   # rule_based | xgb | lgbm | lstm | ensemble
-  min_confidence                    : 0.50   # ขั้นต่ำที่จะเปิดไม้ (override ที่ symbol_settings)
+  min_confidence                    : 0.42   # ขั้นต่ำที่จะเปิดไม้ (override ที่ symbol_settings)
   cooldown_min                      : 10     # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
   min_directional_prob              : 0.20   # sell_prob ขั้นต่ำ (มักอยู่ 0.15-0.25 ตอน trending)
   min_agree_for_directional_override: 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศได้
@@ -155,7 +142,7 @@ order:
     EURUSD:  80
     GBPUSD:  90
     default:  90
-  tp_ratio: 1.8              # TP = SL × ค่านี้ (ต้อง > 1.0 ให้ไม้ชนะใหญ่กว่าไม้แพ้)
+  tp_ratio: 1.6              # TP = SL × ค่านี้ (ต้อง > 1.0 ให้ไม้ชนะใหญ่กว่าไม้แพ้)
   min_rr  : 1.5             # R:R ขั้นต่ำที่ยอมรับ — ตั้งให้ ≤ tp_ratio เสมอ
   max_slippage         : 10      # slippage ที่ยอมรับได้ (points)
   magic_number          : 20250101   # เลขระบุ order ของบอท (กันชนกับ EA อื่น)
@@ -290,19 +277,19 @@ symbol_settings:
     #   = เทรดเฉพาะ FX ที่คุม risk ได้ตรงกว่า
     max_risk_pct       : 0.02
   EURUSD:
-    min_confidence     : 0.52
+    min_confidence     : 0.42
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
     max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 บัญชี $100 FX 0.01 lot เสี่ยง ~2% (floor) รับได้
   GBPUSD:
-    min_confidence     : 0.52
+    min_confidence     : 0.42
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
     max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 เช่นเดียวกับ EUR
   _default:                    # symbol ที่ไม่ได้ระบุด้านบน
-    min_confidence     : 0.52
+    min_confidence     : 0.42
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10

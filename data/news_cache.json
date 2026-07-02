@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-07-01T15:30:04.769255+00:00",
+  "fetched_utc": "2026-07-02T12:14:08.687078+00:00",
   "events": [
     {
       "title": "RBA Gov Bullock Speaks",
@@ -590,6 +590,20 @@
       "source": "forexfactory"
     },
     {
+      "title": "Spanish 10-y Bond Auction",
+      "country": "EUR",
+      "impact": "low",
+      "time_utc": "2026-07-02T08:41:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "French 10-y Bond Auction",
+      "country": "EUR",
+      "impact": "low",
+      "time_utc": "2026-07-02T08:56:00+00:00",
+      "source": "forexfactory"
+    },
+    {
       "title": "Unemployment Rate",
       "country": "EUR",
       "impact": "high",
@@ -597,24 +611,10 @@
       "source": "forexfactory"
     },
     {
-      "title": "Spanish 10-y Bond Auction",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-02T09:03:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "French 10-y Bond Auction",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-02T09:18:00+00:00",
-      "source": "forexfactory"
-    },
-    {
       "title": "10-y Bond Auction",
       "country": "GBP",
       "impact": "low",
-      "time_utc": "2026-07-02T09:33:00+00:00",
+      "time_utc": "2026-07-02T09:03:00+00:00",
       "source": "forexfactory"
     },
     {
