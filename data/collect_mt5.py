@@ -105,6 +105,14 @@ def collect_mt5_data(
                 df.set_index('time', inplace=True)
                 df.index.name = 'datetime'
 
+                # ✅ FIX (2026-07-01): ตัดแท่งสุดท้ายทิ้ง — pos 0 ของ MT5 คือ
+                #   "แท่งปัจจุบันที่ยังไม่ปิด" OHLC ยังเปลี่ยนได้ตลอด
+                #   ถ้าเก็บไว้: training data มีแท่งไม่นิ่งปน + ค่า feature ของ
+                #   แท่งนั้นจะต่างกันแล้วแต่ว่าดึงตอนไหน (ไม่ reproducible)
+                #   เทรน/backtest ต้องเห็นเฉพาะแท่งที่ปิดแล้วเท่านั้น
+                if len(df) > 1:
+                    df = df.iloc[:-1]
+
                 # ✅ FIX BUG-9: ใช้ absolute path
                 out = raw_dir / f"{key}.parquet"
                 df.to_parquet(out)
@@ -115,8 +123,11 @@ def collect_mt5_data(
                 )
 
     finally:
-        # ✅ FIX BUG-8: shutdown เสมอ ไม่ว่าจะ exception หรือไม่
-        #mt5.shutdown()
-        log.debug("MT5 shutdown complete")
+        # ⚠️ ตั้งใจ "ไม่" เรียก mt5.shutdown() ที่นี่:
+        #   ฟังก์ชันนี้ถูกเรียกจากใน process ของบอทด้วย (run_quick_update
+        #   ตอนบอทเริ่ม) — ถ้า shutdown ตรงนี้จะตัด MT5 connection ของบอท
+        #   ที่กำลังเทรดทิ้งทันที. ปล่อยให้ process จบเองเป็นคน cleanup
+        #   (กรณีรันจาก Task Scheduler process จบ = connection ปิดเองอยู่แล้ว)
+        log.debug("collect_mt5 เสร็จ — คง MT5 connection ไว้ (by design)")
 
     return collected

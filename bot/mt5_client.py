@@ -512,9 +512,10 @@ class MT5Client:
     # ══════════════════════════════════════════════════════════
     def get_ohlcv(
         self,
-        symbol:    str,
-        timeframe: str,
-        n_bars:    int = 500,
+        symbol:      str,
+        timeframe:   str,
+        n_bars:      int  = 500,
+        closed_only: bool = True,
     ) -> pd.DataFrame:
         """
         ดึง OHLCV bars จาก MT5
@@ -523,6 +524,14 @@ class MT5Client:
         columns: open, high, low, close, tick_volume,
                  spread, real_volume
         index:   datetime (UTC)
+
+        ✅ FIX (2026-07-01) closed_only=True (default):
+          ตัดแท่งสุดท้ายทิ้ง — pos 0 ของ MT5 คือแท่งปัจจุบันที่ยังไม่ปิด
+          (OHLC ยังวิ่ง). โมเดลถูกเทรน/backtest บนแท่งปิดล้วน ถ้า live
+          คำนวณสัญญาณบนแท่งที่ยังไม่จบ = train/live เห็นคนละอย่าง +
+          สัญญาณกระพริบ (แท่งเดียวกันให้สัญญาณต่างกันแล้วแต่วินาทีที่ดู)
+          ราคาปัจจุบันจริงให้ใช้ tick (symbol_info_tick) ซึ่ง executor
+          ใช้อยู่แล้ว — ไม่ใช่แท่งกำลังก่อตัว
         """
         self.ensure_connected()
 
@@ -557,6 +566,10 @@ class MT5Client:
 
         # ลบ rows ที่ close = 0 (ข้อมูลเสีย)
         df = df[df['close'] > 0]
+
+        # ✅ ตัดแท่งกำลังก่อตัว (แท่งสุดท้ายจาก pos 0)
+        if closed_only and len(df) > 1:
+            df = df.iloc[:-1]
 
         log.debug(
             f"get_ohlcv {symbol} {timeframe}: "

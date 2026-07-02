@@ -244,6 +244,7 @@ def add_target_label(
     forward_bars:    int   = 4,
     min_return_pct:  float = 0.0015,
     label_method:    str   = "simple",   # "simple" | "risk_adjusted" | "triple_barrier"
+    tb_atr_mult:     float = 1.5,        # ✅ barrier สมมาตร ±X×ATR (เฉพาะ triple_barrier)
 ) -> pd.DataFrame:
     """
     สร้าง target label สำหรับ supervised learning
@@ -251,7 +252,7 @@ def add_target_label(
     3 วิธี:
     simple          = ดูแค่ return หลัง n bars
     risk_adjusted   = คิด return หารด้วย volatility
-    triple_barrier  = ดูว่าราคาถึง TP หรือ SL ก่อน
+    triple_barrier  = ดูว่าราคาแตะ barrier บน/ล่าง (สมมาตร) อันไหนก่อน
     """
     df = df.copy()
 
@@ -260,7 +261,11 @@ def add_target_label(
     elif label_method == "risk_adjusted":
         df = _label_risk_adjusted(df, forward_bars, min_return_pct)
     elif label_method == "triple_barrier":
-        df = _label_triple_barrier(df, forward_bars)
+        df = _label_triple_barrier(
+            df, forward_bars,
+            barrier_atr_mult    = tb_atr_mult,
+            fallback_min_return = min_return_pct,
+        )
     else:
         raise ValueError(f"label_method ไม่รู้จัก: {label_method}")
 
@@ -341,25 +346,35 @@ def _label_risk_adjusted(
 
 # ── วิธีที่ 3: Triple Barrier (ดีที่สุด แต่ช้า) ───────────────
 def _label_triple_barrier(
-    df:           pd.DataFrame,
-    forward_bars: int,
-    sl_atr_mult:  float = 1.5,
-    tp_atr_mult:  float = 2.0,
+    df:                  pd.DataFrame,
+    forward_bars:        int,
+    barrier_atr_mult:    float = 1.5,
+    fallback_min_return: float = 0.0015,
 ) -> pd.DataFrame:
     """
-    จำลองการเทรดจริง: ดูว่าราคาถึง TP หรือ SL ก่อน
+    จำลองการเทรดจริง: ดูว่าราคาแตะ barrier บนหรือล่างก่อน
     ถ้าไม่ถึงทั้งคู่ใน n bars = HOLD
 
-    TP ถูกแตะก่อน = BUY label
-    SL ถูกแตะก่อน = SELL label
-    หมดเวลา n bars = HOLD label
+    แตะ barrier บนก่อน = BUY label
+    แตะ barrier ล่างก่อน = SELL label
+    หมดเวลา n bars      = HOLD label
 
-    ข้อดี: สะท้อนการเทรดจริงมากที่สุด
-    ข้อเสีย: ช้า O(n²) ต้อง loop ทุก row
+    ✅ FIX (2026-07-01) — SELL-bias bug:
+      เดิม barrier ไม่สมมาตร: บน +2.0 ATR / ล่าง -1.5 ATR
+      → บน random walk ราคาแตะฝั่งล่าง (ใกล้กว่า) ง่ายกว่าอย่างเป็นระบบ
+      → label SELL >> BUY (หลักฐาน: log เทรนจริง BUY=18.6% SELL=30.1%)
+      → โมเดลถูก "สอน" ให้เอียง SELL → อาการ SELL สวนตลาดขาขึ้น
+      ต้นตอ: เอา geometry ของ "ไม้ long (SL แคบ TP กว้าง)" มาตีป้าย
+      "ทิศทาง" ซึ่งเป็นคนละคำถามกัน — label ทิศทางต้องสมมาตร
+      (RR asymmetry เป็นหน้าที่ของ strategy/SL-TP ตอนเทรด ไม่ใช่ label)
+
+    ✅ FIX เพิ่ม:
+      - แท่งเดียวแตะทั้งสอง barrier (OHLC บอกลำดับไม่ได้) → HOLD กันเดามั่ว
+      - ATR ไม่ valid (NaN/0 ช่วงต้นข้อมูล) → HOLD แทนที่จะเทียบกับ NaN
     """
     if 'atr_14' not in df.columns:
         log.warning("ไม่มี atr_14 — ใช้ simple label แทน")
-        return _label_simple(df, forward_bars, 0.0015)
+        return _label_simple(df, forward_bars, fallback_min_return)
 
     c   = df['close'].values
     atr = df['atr_14'].values
@@ -370,18 +385,33 @@ def _label_triple_barrier(
     high_arr = df['high'].values
     low_arr  = df['low'].values
 
+    n_ambiguous = 0
     for i in range(len(df) - forward_bars):
-        entry  = c[i]
-        tp     = entry + atr[i] * tp_atr_mult
-        sl     = entry - atr[i] * sl_atr_mult
+        # guard: ATR ต้อง valid — ไม่งั้น barrier เป็น NaN เทียบอะไรไม่ได้
+        if not np.isfinite(atr[i]) or atr[i] <= 0:
+            labels[i] = 0
+            continue
 
-        label  = 0   # default HOLD
-        for j in range(i+1, min(i+1+forward_bars, len(df))):
-            if high_arr[j] >= tp:
-                label = 1    # TP ถูกแตะก่อน = BUY
+        entry = c[i]
+        # ✅ สมมาตร: ระยะเท่ากันทั้งสองฝั่ง — ถามแค่ "ราคาไปทางไหนแบบมีนัยก่อน"
+        up_barrier = entry + atr[i] * barrier_atr_mult
+        dn_barrier = entry - atr[i] * barrier_atr_mult
+
+        label = 0   # default HOLD (หมดเวลา = ไม่มีทิศชัด)
+        for j in range(i + 1, min(i + 1 + forward_bars, len(df))):
+            hit_up = high_arr[j] >= up_barrier
+            hit_dn = low_arr[j]  <= dn_barrier
+            if hit_up and hit_dn:
+                # แท่งเดียวแตะทั้งคู่ — OHLC บอกไม่ได้ว่าอันไหนก่อน
+                # เดาไปทางใดทางหนึ่ง = inject bias → ตีเป็น HOLD
+                label = 0
+                n_ambiguous += 1
                 break
-            if low_arr[j] <= sl:
-                label = -1   # SL ถูกแตะก่อน = SELL
+            if hit_up:
+                label = 1    # แตะบนก่อน = BUY
+                break
+            if hit_dn:
+                label = -1   # แตะล่างก่อน = SELL
                 break
 
         labels[i] = label
@@ -390,12 +420,22 @@ def _label_triple_barrier(
     df.loc[df.index[-forward_bars:], 'label'] = np.nan
 
     # log สัดส่วน label
+    n_buy, n_sell = int((labels == 1).sum()), int((labels == -1).sum())
     log.info(
-        f"Triple Barrier: "
-        f"TP={sum(labels==1)} "
-        f"SL={sum(labels==-1)} "
-        f"Hold={sum(labels==0)}"
+        f"Triple Barrier (symmetric ±{barrier_atr_mult}xATR, "
+        f"{forward_bars} bars): "
+        f"BUY={n_buy} SELL={n_sell} "
+        f"Hold={int((labels == 0).sum())} "
+        f"ambiguous→HOLD={n_ambiguous}"
     )
+    # barrier สมมาตรแล้ว BUY/SELL ควรใกล้กัน — ถ้าห่างมากคือตลาดมี trend จริง
+    # (ยอมรับได้) แต่ถ้าห่าง >1.5x ต่อเนื่องทุก symbol ให้สงสัยข้อมูล/โค้ด
+    if min(n_buy, n_sell) > 0 and max(n_buy, n_sell) / min(n_buy, n_sell) > 1.5:
+        log.warning(
+            f"⚠️ Label เอียงข้าง BUY={n_buy} SELL={n_sell} "
+            f"(ratio {max(n_buy,n_sell)/min(n_buy,n_sell):.2f}) — "
+            f"เช็คว่าเป็น trend จริงของช่วงข้อมูล ไม่ใช่บั๊ก"
+        )
     return df
 
 

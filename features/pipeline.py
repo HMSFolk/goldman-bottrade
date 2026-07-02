@@ -293,11 +293,15 @@ def build_features(
     if not for_live:
         # ✅ FIX BUG-4: ส่ง label_method จาก config (triple_barrier) ไม่ใช่ default "simple"
         label_method = CFG.get('training', {}).get('label_method', 'triple_barrier')
+        # ✅ FIX (2026-07-01): barrier สมมาตร ±tb_atr_mult×ATR — อ่านจาก config
+        #   (เดิม triple_barrier hardcode บน 2.0 / ล่าง 1.5 → label เอียง SELL)
+        tb_atr_mult = float(CFG.get('training', {}).get('tb_atr_mult', 1.5))
         df = add_target_label(
             df,
             forward_bars = FORWARD_BARS,
             min_return_pct = MIN_RETURN,
             label_method = label_method,
+            tb_atr_mult  = tb_atr_mult,
         )
 
     # ── Cleanup ───────────────────────────────────────────────

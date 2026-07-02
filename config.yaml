@@ -80,6 +80,9 @@ data:
     M15: 50000
     H1:  12000
     H4:  4000
+  # ✅ (2026-07-01) กฎเหล็ก: collect_macro.py อ่าน key นี้ (เดิมไม่มีใน config
+  #   โค้ดใช้ default 730 เงียบๆ) — ดึง macro ย้อนหลังกี่วัน
+  macro_history_days: 730
   macro_symbols:
     DXY:    "DX-Y.NYB"
     US10Y:  "^TNX"
@@ -312,8 +315,13 @@ symbol_settings:
 
 training:
   label_method  : "triple_barrier"
-  forward_bars  : 6       # มองไปข้างหน้า 6 แท่ง (90 นาที) ให้ราคาขยับถึง threshold
-  min_return_pct: 0.0007  # 0.07% (ลดจาก 0.10% — ลด HOLD bias: ตีป้าย BUY/SELL ถี่ขึ้น)
+  forward_bars  : 6       # มองไปข้างหน้า 6 แท่ง (90 นาที) ให้ราคาแตะ barrier
+  # ✅ (2026-07-01) barrier สมมาตร ±tb_atr_mult×ATR ทั้งสองฝั่ง
+  #   เดิม hardcode ในโค้ด: บน 2.0 / ล่าง 1.5 (ไม่สมมาตร) → ราคาแตะฝั่งล่าง
+  #   ง่ายกว่าอย่างเป็นระบบ → label SELL=30.1% >> BUY=18.6% → โมเดลเอียง SELL
+  #   ค่านี้: สูงขึ้น = สัญญาณน้อยแต่ชัด (HOLD เยอะ) | ต่ำลง = สัญญาณถี่แต่ noise เพิ่ม
+  tb_atr_mult   : 1.2
+  min_return_pct: 0.0007  # ใช้กับ label_method simple/risk_adjusted (fallback ของ triple_barrier)
   wf_gap_bars   : 96      # เว้นกี่แท่งระหว่าง train/test กัน look-ahead
   xgb_params:
     n_estimators    : 500
