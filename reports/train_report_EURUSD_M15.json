@@ -2,63 +2,63 @@
   "symbol": "EURUSD",
   "timeframe": "M15",
   "n_features": 80,
-  "n_samples": 49993,
-  "trained_at": "2026-07-01T01:22:35.291520+00:00",
+  "n_samples": 49992,
+  "trained_at": "2026-07-02T21:03:40.858090+00:00",
   "model_path": "/app/models/saved/xgb_EURUSD.pkl",
   "is_acceptable": "False",
-  "mean_accuracy": 0.4939,
-  "mean_f1": 0.4427,
-  "std_accuracy": 0.0479,
+  "mean_accuracy": 0.47,
+  "mean_f1": 0.4401,
+  "std_accuracy": 0.0302,
   "folds": [
     {
       "fold": 1,
-      "train_period": "2024-06-26 \u2192 2024-10-23",
-      "test_period": "2024-10-24 \u2192 2025-02-26",
-      "accuracy": 0.5397,
-      "f1_macro": 0.4449,
-      "buy_precision": 0.3084,
-      "buy_recall": 0.5636,
-      "n_trades": 2789
+      "train_period": "2024-06-27 \u2192 2024-10-25",
+      "test_period": "2024-10-28 \u2192 2025-02-28",
+      "accuracy": 0.4816,
+      "f1_macro": 0.4361,
+      "buy_precision": 0.4384,
+      "buy_recall": 0.7489,
+      "n_trades": 4932
     },
     {
       "fold": 2,
-      "train_period": "2024-06-26 \u2192 2025-02-25",
-      "test_period": "2025-02-26 \u2192 2025-06-27",
-      "accuracy": 0.4556,
-      "f1_macro": 0.3944,
-      "buy_precision": 0.4682,
-      "buy_recall": 0.121,
-      "n_trades": 440
+      "train_period": "2024-06-27 \u2192 2025-02-27",
+      "test_period": "2025-02-28 \u2192 2025-07-01",
+      "accuracy": 0.4551,
+      "f1_macro": 0.4245,
+      "buy_precision": 0.6295,
+      "buy_recall": 0.158,
+      "n_trades": 807
     },
     {
       "fold": 3,
-      "train_period": "2024-06-26 \u2192 2025-06-26",
-      "test_period": "2025-06-27 \u2192 2025-10-28",
-      "accuracy": 0.4189,
-      "f1_macro": 0.4087,
-      "buy_precision": 0.2481,
-      "buy_recall": 0.4629,
-      "n_trades": 2769
+      "train_period": "2024-06-27 \u2192 2025-06-30",
+      "test_period": "2025-07-01 \u2192 2025-10-30",
+      "accuracy": 0.4185,
+      "f1_macro": 0.3468,
+      "buy_precision": 0.4044,
+      "buy_recall": 0.7874,
+      "n_trades": 5759
     },
     {
       "fold": 4,
-      "train_period": "2024-06-26 \u2192 2025-10-27",
-      "test_period": "2025-10-28 \u2192 2026-03-02",
-      "accuracy": 0.5286,
-      "f1_macro": 0.4835,
-      "buy_precision": 0.3421,
-      "buy_recall": 0.3061,
-      "n_trades": 1368
+      "train_period": "2024-06-27 \u2192 2025-10-29",
+      "test_period": "2025-10-30 \u2192 2026-03-03",
+      "accuracy": 0.4936,
+      "f1_macro": 0.4903,
+      "buy_precision": 0.5139,
+      "buy_recall": 0.3338,
+      "n_trades": 1938
     },
     {
       "fold": 5,
-      "train_period": "2024-06-26 \u2192 2026-02-27",
-      "test_period": "2026-03-02 \u2192 2026-06-30",
-      "accuracy": 0.5265,
-      "f1_macro": 0.4818,
-      "buy_precision": 0.3299,
-      "buy_recall": 0.3379,
-      "n_trades": 1558
+      "train_period": "2024-06-27 \u2192 2026-03-02",
+      "test_period": "2026-03-03 \u2192 2026-07-02",
+      "accuracy": 0.5013,
+      "f1_macro": 0.5027,
+      "buy_precision": 0.509,
+      "buy_recall": 0.4521,
+      "n_trades": 2615
     }
   ]
 }
