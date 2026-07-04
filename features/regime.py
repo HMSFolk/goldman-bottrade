@@ -705,6 +705,17 @@ REGIME_CONFIDENCE_THRESHOLDS: dict[str, float] = {
     "uncertain"    : 0.65,
 }
 
+# ✅ (2026-07-04) override จาก config: signal.regime_conf_thresholds
+#   เดิม hardcode — ปรับเกตต้องแก้โค้ด ขัดกฎเหล็ก (ค่าจูนอยู่ที่ config)
+#   ค่าใน dict ข้างบนคือ default ถ้า config ไม่ระบุ
+#   หมายเหตุ: อ่านตอน import → เปลี่ยนค่าแล้วต้อง RESTART bot (hot-reload ไม่พอ)
+try:
+    from config import get_config as _get_cfg
+    _ov = (_get_cfg().get("signal", {}) or {}).get("regime_conf_thresholds", {}) or {}
+    REGIME_CONFIDENCE_THRESHOLDS.update({str(k): float(v) for k, v in _ov.items()})
+except Exception as _e:   # config พัง/ยังไม่พร้อม → ใช้ default เดิม ไม่ล้ม
+    logging.getLogger("models").debug(f"regime_conf_thresholds override skip: {_e}")
+
 
 # ══════════════════════════════════════════════════════════════
 # Convenience functions

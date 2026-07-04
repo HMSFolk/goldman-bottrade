@@ -1,3 +1,9 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  ⚠️⚠️  CONFIG ทดลองสำหรับ DEMO เท่านั้น — ห้ามใช้กับเงินจริง  ⚠️⚠️   ║
+# ║  จุดประสงค์: ปลดเกตให้เทรดถี่ขึ้นเพื่อ "เก็บข้อมูล" ว่าโมเดลเป็นยังไง  ║
+# ║  คาดหวังได้เลยว่าจะแพ้บ่อยขึ้น — นี่คือค่าจ่ายซื้อข้อมูล ไม่ใช่บั๊ก      ║
+# ║  ครบ ~30-50 ไม้ → รัน analyze_shadow + ดูผล → ค่อยตัดสิน threshold  ║
+# ╚══════════════════════════════════════════════════════════════════╝
 # ══════════════════════════════════════════════════════════════════════
 # TRADING BOT — MASTER CONFIG (Production)
 # แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
@@ -84,7 +90,7 @@ data:
 
 # กฎคุมความเสี่ยงต่อไม้ (limit ขาดทุนรายวันอยู่ที่ circuit_breaker)
 risk:
-  risk_per_trade           : 0.01   # เสี่ยงกี่% ของ balance ต่อไม้
+  risk_per_trade           : 0.005  # 🧪 EXPERIMENT (ปกติ 0.01) — เก็บ sample เยอะ จ่ายถูก
   max_open_trades          : 8      # เปิดพร้อมกันได้สูงสุดกี่ไม้ (รวมทุก symbol)
   min_lot                  : 0.01
   max_lot                  : 0.50
@@ -133,11 +139,11 @@ signal:
   #   (กฎเหล็ก: ค่าจูนอยู่ที่ config) — ค่าด้านล่าง = ค่าเดิมเป๊ะ ไม่เปลี่ยนพฤติกรรม
   #   ⚠️ อ่านตอน start เท่านั้น — แก้แล้วต้อง RESTART bot
   regime_conf_thresholds:
-    trending_up  : 0.55
-    trending_down: 0.55
-    ranging      : 0.60
-    volatile     : 0.70
-    uncertain    : 0.65
+    trending_up  : 0.50   # 🧪 EXPERIMENT (ปกติ 0.55)
+    trending_down: 0.50   # 🧪 EXPERIMENT (ปกติ 0.55)
+    ranging      : 0.52   # 🧪 EXPERIMENT (ปกติ 0.60)
+    volatile     : 0.70   # คงเดิม — volatile อันตรายจริง
+    uncertain    : 0.55   # 🧪 EXPERIMENT (ปกติ 0.65) — เกตที่ขังบอทมากสุด
   cooldown_min                      : 10     # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
   min_directional_prob              : 0.20   # sell_prob ขั้นต่ำ (มักอยู่ 0.15-0.25 ตอน trending)
   min_agree_for_directional_override: 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศได้
@@ -276,7 +282,7 @@ trade_management:
 #   ตั้งต่ำกว่า ~0.025 ทองจะแทบไม่เทรดบนพอร์ตขนาดนี้
 symbol_settings:
   XAUUSD:
-    min_confidence     : 0.52
+    min_confidence     : 0.47   # 🧪 EXPERIMENT (ปกติ 0.52)
     max_session_losses : 3     # แพ้ 3 ครั้ง → หยุด XAU จน reset session ถัดไป
     risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบ symbol อื่น
     cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้
@@ -284,7 +290,7 @@ symbol_settings:
     #   ทอง 0.01 lot (floor ลดไม่ได้) เสี่ยง ~2.5% บน $315 / ~8% บน $100
     #   เพดาน 0.02 < risk จริง → calculate_lot_size คืน 0.0 → ทอง skip ทุกไม้
     #   = เทรดเฉพาะ FX ที่คุม risk ได้ตรงกว่า
-    max_risk_pct       : 0.02
+    max_risk_pct       : 0.03   # 🧪 EXPERIMENT (ปกติ 0.02) — ปลดทองบน demo, risk จริง ~2.5%/ไม้
   EURUSD:
     min_confidence     : 0.42
     risk_multiplier    : 1.00
