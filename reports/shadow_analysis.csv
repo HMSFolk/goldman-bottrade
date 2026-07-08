@@ -1,0 +1,2 @@
+﻿ts,symbol,direction,confidence,price,sl_dist,tp_dist,regime,skip_reason,outcome,r,conf_bucket
+2026-07-08 12:47:52.706454+00:00,EURUSD,BUY,0.5525,1.14045,0.00152,0.00244,📉 trending_down,hard_block_buy_in_trending_down,win,1.6052631578947367,0.55-0.60

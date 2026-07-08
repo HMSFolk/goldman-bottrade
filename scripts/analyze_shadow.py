@@ -122,7 +122,7 @@ def _simulate(rec, bars: pd.DataFrame, offset_h: int, max_bars: int):
 def _summary(df: pd.DataFrame, by: str) -> pd.DataFrame:
     """สรุป WR / expectancy ต่อกลุ่ม (นับเฉพาะไม้ที่ตัดสินได้ win/loss)"""
     rows = []
-    for key, g in df.groupby(by):
+    for key, g in df.groupby(by, observed=False):
         dec = g[g["outcome"].isin(["win", "loss"])]
         n_dec = len(dec)
         wr  = (dec["outcome"] == "win").mean() if n_dec else float("nan")
@@ -135,7 +135,7 @@ def _summary(df: pd.DataFrame, by: str) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("signals", ascending=False)
 
 
-def main(max_bars: int = 96):
+def main(max_bars: int = 96, offset_override: int | None = None):
     df = _load_shadow()
     if df.empty:
         return
@@ -151,10 +151,21 @@ def main(max_bars: int = 96):
             p = RAW_DIR / f"{sym}_M15.parquet"
             if p.exists():
                 b = pd.read_parquet(p).sort_index()
-                bars_cache[sym]   = b
-                offset_cache[sym] = _broker_offset_hours(b)
-                print(f"  {sym}: {len(b)} bars | server-time offset ≈ "
-                      f"{offset_cache[sym]:+d}h (แก้ก่อน match กัน lookahead)")
+                bars_cache[sym] = b
+                if offset_override is not None:
+                    offset_cache[sym] = offset_override
+                    print(f"  {sym}: {len(b)} bars | ใช้ offset ที่ระบุ {offset_override:+d}h")
+                else:
+                    off = _broker_offset_hours(b)
+                    offset_cache[sym] = off
+                    print(f"  {sym}: {len(b)} bars | server-time offset ≈ {off:+d}h (auto)")
+                    # ✅ auto ใช้ได้เฉพาะไฟล์สด (quick update ตอนบอท start)
+                    #   ถ้าไฟล์เก่า ค่าที่ได้จะปน "ความเก่า" จน match แท่งผิดช่วง
+                    if not (-1 <= off <= 4):
+                        print(f"  ⚠️ {sym}: offset {off:+d}h ผิดปกติ (ควร +2/+3) — "
+                              f"raw parquet น่าจะเก่า → ผล simulate ของ {sym} เชื่อไม่ได้!\n"
+                              f"     ทางแก้: restart bot (ให้ quick update รีเฟรชไฟล์) แล้วรันใหม่ "
+                              f"หรือระบุ --offset 3 เอง")
             else:
                 bars_cache[sym] = None
         if bars_cache[sym] is None:
@@ -229,5 +240,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-bars", type=int, default=96,
                     help="เดินหน้ากี่แท่ง M15 ก่อนถือว่า open (default 96 = 1 วัน)")
+    ap.add_argument("--offset", type=int, default=None,
+                    help="server-time offset ชั่วโมง (เช่น 3 สำหรับ Exness ช่วง DST) — "
+                         "ระบุเองเมื่อ raw parquet ไม่สด")
     args = ap.parse_args()
-    main(max_bars=args.max_bars)
+    main(max_bars=args.max_bars, offset_override=args.offset)
