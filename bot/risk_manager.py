@@ -255,6 +255,10 @@ class RiskManager:
         self._trades_today:        int             = 0
         self._pnl_today:           float           = 0.0
 
+        # ✅ FIX CB-SOURCE (2026-07-11): flag สำหรับ log ลายเซ็น deploy ครั้งเดียว
+        #   (ยืนยันว่า CB อ่าน P&L จาก MT5 deals แล้ว ไม่ใช่ DB ที่ไม่มี close)
+        self._cb_pnl_src_logged:   bool            = False
+
         # Margin limit
         self.min_margin_level  = 200.0   # % ไม่เทรดถ้า margin < 200%
 
@@ -805,8 +809,9 @@ class RiskManager:
     # ══════════════════════════════════════════════════════════
     # ✅ CONSOLIDATED (2026-06-22): check_daily_loss() (balance-snapshot
     # shortcut เดิมที่ main.py เรียกทุก tick) ถูกลบออก — ซ้ำกับ
-    # check_circuit_breaker() → _cb_check_daily_loss() (deal-history P&L)
-    # ซึ่งเป็น single source of truth ของ daily-loss แล้วตอนนี้
+    # check_circuit_breaker() → _cb_check_daily_loss()
+    # ✅ FIX CB-SOURCE (2026-07-11): P&L ของ CB อ่านจาก MT5 history_deals_get
+    # โดยตรง (เดิมอ่าน trades.db ซึ่งไม่มีใครเขียน close → ตายทั้ง 3 ชั้น)
 
     # ══════════════════════════════════════════════════════════
     # Spread Filter
@@ -1059,10 +1064,10 @@ class RiskManager:
             return False, 0.0, 0.0, ""
 
         daily_pnl = self._cb_get_pnl(days_back=1)
-        if daily_pnl == 0.0:
-            acc = self._cb_get_account_info()
-            if acc:
-                daily_pnl = acc.get("profit", 0.0)
+        # ✅ FIX CB-SOURCE (2026-07-11): เดิม `== 0.0` + fetch acc.profit ใส่ตัวแปร
+        #   แล้ว return ทิ้ง (dead code) และวันที่ "กำไร" จะหลุดไป abs() กลายเป็น
+        #   ขาดทุนปลอม → เปลี่ยนเป็น >= 0.0 (ไม่ขาดทุน = ไม่มีอะไรต้องเช็ค)
+        if daily_pnl >= 0.0:
             return False, 0.0, 0.0, ""
 
         loss = abs(daily_pnl)
@@ -1240,58 +1245,85 @@ class RiskManager:
     # Circuit Breaker — Data Helpers
     # ══════════════════════════════════════════════════════════
 
-    def _cb_get_pnl(self, days_back: int = 1) -> float:
-        """ดึง P&L จาก SQLite ย้อนหลัง N วัน (negative = loss)"""
+    def _cb_get_closed_deals(self, days_back: int) -> Optional[list]:
+        """
+        ✅ FIX CB-SOURCE (2026-07-11): ดึง closing deals ของบอทจาก MT5 ตรง
+        (source of truth เดียวกับ floating_dd) — เดิมอ่าน trades.db ซึ่งไม่มี
+        ใครเขียน close_time/profit เลย → SUM ได้ 0 ตลอด → CB daily/weekly/
+        consecutive ไม่มีวัน trigger (พิสูจน์จาก DB จริง 42 แถว close=NULL)
+
+        Returns:
+            list ของ closing deals เรียงตามเวลา (เก่า→ใหม่)
+            None = ดึงจาก MT5 ไม่ได้ (ให้ caller fail-safe เอง)
+
+        หมายเหตุ timezone (ห้ามแก้ทีละจุด — ตามกฎโปรเจกต์):
+            เวลาใน MT5 deals เป็น server time (UTC+2/3) แต่ระบบเราติดป้าย UTC
+            ทั้งระบบอย่างสม่ำเสมอ → to_dt เผื่อ +1 วันกัน deal ล่าสุดหลุดขอบ
+            (อนาคตไม่มี deal อยู่แล้ว จึงเผื่อได้ฟรี) ผลข้างเคียง: หน้าต่าง
+            "1 วัน" กว้างจริง ~27 ชม. = เอียงไปทางปลอดภัย (trigger ไวขึ้นเล็กน้อย)
+        """
         try:
-            db_path = CFG.get("paths", {}).get("db", "db/trades.db")
-            if not Path(db_path).exists():
-                return 0.0
-            conn = sqlite3.connect(db_path)
-            try:
-                cur = conn.execute(
-                    """
-                    SELECT COALESCE(SUM(profit), 0)
-                    FROM   trades
-                    WHERE  close_time IS NOT NULL
-                      AND  close_time >= datetime('now', ? || ' days')
-                    """,
-                    (f"-{days_back}",),
-                )
-                return float(cur.fetchone()[0])
-            finally:
-                conn.close()
+            magic = int(CFG.get("order", {}).get("magic_number", 0))
+            now   = datetime.now(timezone.utc)
+            frm   = now - timedelta(days=days_back)
+            to    = now + timedelta(days=1)   # กัน server time นำหน้าป้าย UTC
+
+            deals = mt5.history_deals_get(frm, to)
+            if deals is None:
+                log.error(f"_cb_get_closed_deals: history_deals_get คืน None "
+                          f"(mt5 error: {mt5.last_error()})")
+                return None
+
+            entry_in = getattr(mt5, "DEAL_ENTRY_IN", 0)
+            closed = [
+                d for d in deals
+                if d.magic == magic and d.entry != entry_in
+            ]
+            closed.sort(key=lambda d: d.time)
+
+            # ลายเซ็น deploy — log ครั้งเดียวตอนถูกเรียกครั้งแรก
+            if not self._cb_pnl_src_logged:
+                self._cb_pnl_src_logged = True
+                log.info(f"✅ CB pnl source: MT5 deals "
+                         f"(magic={magic}, {len(closed)} closing deals "
+                         f"ใน {days_back}d window)")
+            return closed
         except Exception as e:
-            log.error(f"_cb_get_pnl error: {e}")
+            log.error(f"_cb_get_closed_deals error: {e}")
+            return None
+
+    @staticmethod
+    def _deal_net(d) -> float:
+        """P&L สุทธิของ deal เดียว = profit + swap + commission"""
+        return (float(getattr(d, "profit", 0.0) or 0.0)
+                + float(getattr(d, "swap", 0.0) or 0.0)
+                + float(getattr(d, "commission", 0.0) or 0.0))
+
+    def _cb_get_pnl(self, days_back: int = 1) -> float:
+        """ดึง P&L สุทธิย้อนหลัง N วันจาก MT5 deals (negative = loss)
+
+        fail-safe: ดึงไม่ได้ → 0.0 (ไม่ trigger) — พฤติกรรมเดิมตอน DB หาย
+        """
+        deals = self._cb_get_closed_deals(days_back)
+        if not deals:          # None (error) หรือ [] (ไม่มีดีล) → ไม่มีอะไรให้เช็ค
             return 0.0
+        return sum(self._deal_net(d) for d in deals)
 
     def _cb_get_consecutive_loss_count(self) -> int:
-        """นับ consecutive losses ล่าสุด (หยุดเมื่อเจอ trade กำไร)"""
-        try:
-            db_path = CFG.get("paths", {}).get("db", "db/trades.db")
-            if not Path(db_path).exists():
-                return 0
-            conn = sqlite3.connect(db_path)
-            try:
-                cur = conn.execute(
-                    """
-                    SELECT profit FROM trades
-                    WHERE  close_time IS NOT NULL
-                    ORDER  BY close_time DESC
-                    LIMIT  30
-                    """
-                )
-                count = 0
-                for (profit,) in cur.fetchall():
-                    if float(profit or 0) < 0:
-                        count += 1
-                    else:
-                        break
-                return count
-            finally:
-                conn.close()
-        except Exception as e:
-            log.error(f"_cb_get_consecutive_loss_count error: {e}")
+        """นับ consecutive losses ล่าสุดจาก MT5 deals (หยุดเมื่อเจอ deal กำไร)
+
+        มองย้อนหลัง 7 วัน (เกินพอสำหรับ count limit ระดับ 5-10 ไม้)
+        """
+        deals = self._cb_get_closed_deals(days_back=7)
+        if not deals:
             return 0
+        count = 0
+        for d in reversed(deals):            # ใหม่ → เก่า
+            if self._deal_net(d) < 0:
+                count += 1
+            else:
+                break
+        return count
 
     def _cb_get_account_info(self) -> Optional[dict]:
         """ดึง account info จาก MT5"""

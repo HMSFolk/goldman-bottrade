@@ -606,8 +606,15 @@ def run_tick(symbol: str):
                 # บันทึก trade และ update cooldown
                 STATE.last_trade_time[symbol] = time.time()
                 STATE.symbol_errors[symbol]   = 0
+                # ✅ FIX P1 (2026-07-11): เดิมส่งแค่ 3 arg → คอลัมน์ regime/session
+                #   ใน DB ว่างทั้งตาราง วิเคราะห์ WR ต่อ regime ไม่ได้ (พิสูจน์จาก
+                #   signals 42 แถว regime='' ทุกแถว) — metrics_writer รองรับอยู่แล้ว
+                #   รูปแบบ regime: "<regime ตลาด>|vol:<volatility regime>"
+                #   (proba_* ยังไม่ส่ง — ต้อง plumb ผ่าน TradeSetup ไว้รอบ retrain หน้า)
                 STATE.writer.write_signal(
-                    symbol, setup.direction, setup.confidence
+                    symbol, setup.direction, setup.confidence,
+                    regime  = f"{regime_name_hard}|vol:{setup.regime}",
+                    session = setup.session,
                 )
             else:
                 err_msg = getattr(result, 'error', getattr(result, 'reason', 'unknown'))

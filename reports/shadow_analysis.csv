@@ -1,2 +1,10 @@
 ﻿ts,symbol,direction,confidence,price,sl_dist,tp_dist,regime,skip_reason,outcome,r,conf_bucket
 2026-07-08 12:47:52.706454+00:00,EURUSD,BUY,0.5525,1.14045,0.00152,0.00244,📉 trending_down,hard_block_buy_in_trending_down,win,1.6052631578947367,0.55-0.60
+2026-07-09 13:23:23.003770+00:00,XAUUSD,SELL,0.4403,4120.416,12.10985,19.37576,❓ uncertain,conf_below_sym_threshold(0.47),loss,-1.0,<0.45
+2026-07-10 13:12:21.245575+00:00,GBPUSD,SELL,0.6385,1.34205,0.00179,0.00287,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,>0.60
+2026-07-10 13:27:23.859817+00:00,GBPUSD,SELL,0.618,1.34143,0.00183,0.00293,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,>0.60
+2026-07-10 13:42:28.721953+00:00,GBPUSD,SELL,0.582,1.34114,0.00179,0.00287,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,0.55-0.60
+2026-07-10 13:57:31.351293+00:00,GBPUSD,SELL,0.6176,1.34158,0.00134,0.00215,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,>0.60
+2026-07-10 14:27:36.715191+00:00,GBPUSD,SELL,0.5734,1.34066,0.00181,0.0029,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,0.55-0.60
+2026-07-10 14:42:39.496126+00:00,GBPUSD,SELL,0.6966,1.34115,0.00183,0.00293,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,>0.60
+2026-07-10 14:57:42.253057+00:00,GBPUSD,SELL,0.7359,1.34086,0.00211,0.00338,📈 trending_up,hard_block_sell_in_trending_up,no_data,0.0,>0.60
