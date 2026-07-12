@@ -38,8 +38,8 @@ log = logging.getLogger("models")
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
 # ── Version Control ────────────────────────────────────────────
-VERSION       = "2.2.1"
-DEPLOY_DATE   = "2026-07-4"
+VERSION       = "2.3.7"
+DEPLOY_DATE   = "2026-07-13"
 BACKTEST_SHARPE    = 1.43
 BACKTEST_MAX_DD    = 12.1
 BACKTEST_WIN_RATE  = 52.3
@@ -301,6 +301,8 @@ class StrategyV1:
                 signal = reg["signal"]
                 # ถ้า regime path block → คืน HOLD (direction=0) ให้ evaluate หยุด
                 if not reg["should_trade"]:
+                    # ✅ SHADOW-CONFLICT (log-only): จดทิศดิบก่อนคืน HOLD
+                    self._shadow_log_blocked(df, symbol, signal, reg, regime)
                     return {
                         'direction': 0, 'confidence': signal.confidence,
                         'n_agree': signal.n_agree, 'n_models': signal.n_models,
@@ -482,6 +484,56 @@ class StrategyV1:
                 return False, "bullish_bos"
 
         return True, ""
+
+    def _shadow_log_blocked(self, df, symbol: str, signal, reg: dict, regime) -> None:
+        """
+        ✅ SHADOW-CONFLICT (2026-07-11, log-only — ห้ามกระทบพฤติกรรมเทรด):
+        บันทึกสัญญาณที่โดนบล็อกที่ "ชั้น ensemble" (conflict สูง / conf ต่ำกว่า
+        regime threshold) ลง shadow_trades.jsonl — เดิมไม้กลุ่มนี้หายเงียบ
+        ทำให้ไม่มีข้อมูลเลยว่าเกตที่ขังสัญญาณเยอะที่สุดของระบบ ช่วยหรือขวางเงิน
+
+        ทิศ = argmax(raw_proba)-1 (ทิศดิบก่อนโดน block), SL/TP = คำนวณด้วย
+        เส้นทางจริงของ strategy (_check_volatility → _calc_sl_tp) ไม่ใช่ค่าสมมติ
+        รูปแบบ record เหมือน bot/main.py::_shadow_log ทุกฟิลด์ — analyzer เดิมอ่านได้ทันที
+        """
+        try:
+            if not CFG.get("logging", {}).get("shadow_trades", False):
+                return
+            raw = getattr(signal, "raw_proba", None)
+            if raw is None:
+                return
+            raw_dir = int(raw.argmax()) - 1
+            if raw_dir == 0:
+                return                      # HOLD แท้ — ไม่มีอะไรให้วัด
+
+            row = df.iloc[-1]
+            ok, _r, vol_regime = self._check_volatility(row)
+            sl_dist, tp_dist = self._calc_sl_tp(row, raw_dir, vol_regime, symbol)
+            if sl_dist <= 0 or tp_dist <= 0:
+                return
+
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            from pathlib import Path as _Path
+            reason = reg.get("reason") or getattr(signal, "blocked_reason", None) or "regime_block"
+            rec = {
+                "ts"        : _dt.now(_tz.utc).isoformat(),
+                "symbol"    : symbol,
+                "direction" : "BUY" if raw_dir == 1 else "SELL",
+                "confidence": round(float(getattr(signal, "confidence", 0.0)), 4),
+                "price"     : float(row["close"]),
+                "sl_dist"   : float(sl_dist),
+                "tp_dist"   : float(tp_dist),
+                "regime"    : str(regime).split("|")[0].strip() if regime is not None else None,
+                "skip_reason": f"ensemble_block:{reason}",
+            }
+            _root = _Path(__file__).resolve().parent.parent
+            out = _root / CFG.get("paths", {}).get("logs", "logs") / "shadow_trades.jsonl"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with open(out, "a", encoding="utf-8") as f:
+                f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception as e:
+            log.debug(f"_shadow_log_blocked error (non-fatal): {e}")
 
     def _calc_sl_tp(
         self,

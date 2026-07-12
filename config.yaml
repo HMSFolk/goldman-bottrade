@@ -1,13 +1,18 @@
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  ⚠️⚠️  CONFIG ทดลองสำหรับ DEMO เท่านั้น — ห้ามใช้กับเงินจริง  ⚠️⚠️   ║
-# ║  จุดประสงค์: ปลดเกตให้เทรดถี่ขึ้นเพื่อ "เก็บข้อมูล" ว่าโมเดลเป็นยังไง  ║
-# ║  คาดหวังได้เลยว่าจะแพ้บ่อยขึ้น — นี่คือค่าจ่ายซื้อข้อมูล ไม่ใช่บั๊ก      ║
-# ║  ครบ ~30-50 ไม้ → รัน analyze_shadow + ดูผล → ค่อยตัดสิน threshold  ║
+# ║  🔴 CONFIG LIVE — ทุนจริง $100 (สร้าง 2026-07-11 จาก config_main)   ║
+# ║                                                                    ║
+# ║  GO-LIVE CHECKLIST (ครบทุกข้อก่อนใช้ไฟล์นี้):                        ║
+# ║   [ ] เห็น log "✅ CB pnl source: MT5 deals" หลัง deploy risk fix   ║
+# ║   [ ] analyze_shadow รอบจันทร์ปิดเคส GBP SELL คลัสเตอร์แล้ว          ║
+# ║   [ ] เทส CB: จำกัด loss_usd ชั่วคราว=1 บน demo 1 วัน → เห็น trigger ║
+# ║                                                                    ║
+# ║  กฎถอย (ตกลงไว้ล่วงหน้า — ห้ามต่อรองตอนพอร์ตแดง):                    ║
+# ║   • balance < $90 (−10%)          → กลับ demo + วิเคราะห์            ║
+# ║   • 15 ไม้แรก E < 0               → กลับ demo + วิเคราะห์            ║
+# ║   • weekly CB trigger (10%)       → กลับ demo อัตโนมัติโดยนิยาม      ║
+# ║  ความคาดหวังที่ตรงจริง: E≈+0.14R × R≈$1.2 × 1-3 ไม้/วัน             ║
+# ║   ≈ $0.2-0.5/วัน — live $100 คือ "สอบจริงของระบบ" ไม่ใช่รายได้       ║
 # ╚══════════════════════════════════════════════════════════════════╝
-# ══════════════════════════════════════════════════════════════════════
-# TRADING BOT — MASTER CONFIG (Production)
-# แก้ไฟล์นี้ที่เดียว แล้ว nssm restart TradingBot
-# ──────────────────────────────────────────────────────────────────────
 # โครงสร้าง 8 หมวด:
 #   1. CONNECTION   broker, mt5
 #   2. UNIVERSE     symbols, symbol_map, data
@@ -18,12 +23,8 @@
 #   7. TRAINING     training
 #   8. SYSTEM       paths, logging, dashboard, notifications, api_keys
 # ══════════════════════════════════════════════════════════════════════
-
-
-# ══════════════════════════════════════════════════════════════════════
 # 1. CONNECTION
 # ══════════════════════════════════════════════════════════════════════
-
 # broker ที่ใช้อยู่ — เปลี่ยน broker แก้แค่ตรงนี้ (ต้องมี mapping ใน symbol_map)
 broker:
   name: "exness"
@@ -42,11 +43,9 @@ mt5:
     alert_after_retries  : 3     # ลองครบกี่ครั้งแล้วค่อยแจ้งเตือน
     notify_telegram      : true
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 2. UNIVERSE — symbol ที่เทรด + การแปลงชื่อ broker + ข้อมูลที่ดึง
 # ══════════════════════════════════════════════════════════════════════
-
 # คู่เงินที่เทรด — ใช้ชื่อกลาง (ไม่มี m) ทุกที่ ชื่อจริง broker แปลงผ่าน symbol_map
 symbols:
   active:
@@ -83,23 +82,23 @@ data:
     SILVER: "SI=F"
     OIL:    "CL=F"
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 3. RISK — คุมความเสี่ยงต่อไม้/ต่อวัน + หยุดอัตโนมัติ
 # ══════════════════════════════════════════════════════════════════════
-
 # กฎคุมความเสี่ยงต่อไม้ (limit ขาดทุนรายวันอยู่ที่ circuit_breaker)
 risk:
-  risk_per_trade           : 0.005  # 🧪 EXPERIMENT (ปกติ 0.01) — เก็บ sample เยอะ จ่ายถูก
-  max_open_trades          : 8      # เปิดพร้อมกันได้สูงสุดกี่ไม้ (รวมทุก symbol)
+  risk_per_trade           : 0.01 
+  max_open_trades          : 2      # LIVE $100: 2 ไม้รวม (EUR 1 + GBP 1, ทองปิด)
   min_lot                  : 0.01
-  max_lot                  : 0.50
-  max_positions_per_symbol : 2      # เปิดซ้ำ symbol เดียวกันได้สูงสุดกี่ position
+  max_lot                  : 0.10   # LIVE: ลดเพดาน lot — บน $100 ไม่มีเหตุให้เกิน 0.10
+  max_positions_per_symbol : 1      # LIVE $100: 1 ไม้/สกุล (เดิม demo 2)
+                                     #   เหตุผล: ไม้ที่ 2 ไม่เพิ่ม E ต่อ decision แค่เพิ่ม
+                                     #   ขนาด (พฤ 9 ก.ค. การเบิ้ลไม้ขยายวันแพ้เป็น 2 เท่า)
+                                     #   + สถิติ per-decision สะอาดขึ้นสำหรับรอบวิเคราะห์
   add_same_direction_only  : true   # เพิ่ม position ที่ 2 ได้เฉพาะทิศเดิม (ห้ามสวน)
-  add_position_min_conf    : 0.52   # confidence ขั้นต่ำก่อนเพิ่ม position ที่ 2
+  add_position_min_conf    : 0.50   # confidence ขั้นต่ำก่อนเพิ่ม position ที่ 2
   add_position_min_agree   : 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันก่อนเพิ่ม
   add_only_in_profit       : true   # เติมไม้ที่ 2+ ได้เฉพาะตอนไม้เดิมลอยกำไร
-                                     # (scale into winners — กัน averaging into losers)
 
 # หยุดเทรดอัตโนมัติเมื่อขาดทุนเกิน threshold — จุดเดียวของระบบสำหรับ daily-loss
 circuit_breaker:
@@ -107,55 +106,57 @@ circuit_breaker:
   notify_telegram: true
   daily:
     enabled    : true
-    loss_pct   : 10.0      # หยุดถ้าขาดทุน 5% ของ balance ในวันเดียว
-    loss_usd   : null     # ใส่ USD แทน % ได้ถ้าต้องการ
-    auto_resume: true     # กลับมาเทรดเองเมื่อพ้นช่วง
+    loss_pct   : 10.0      # LIVE $100: $5/วัน ≈ แพ้ 3-4 ไม้ FX → พอให้เทรดทั้งวัน
+                          #   แต่ตัดวัน chop แบบ พฤ 9 ก.ค. (-$7.2) ก่อนบานปลาย
+    loss_usd   : null
+    auto_resume: true     # resume เองวันถัดไป 00:05 UTC
   weekly:
     enabled : true
-    loss_pct: 40.0        # หยุดถ้าขาดทุนสะสมเกิน 10% ในสัปดาห์
+    loss_pct: 10.0        # LIVE: 10% = จุด "กฎถอย" ตามแผนเกต live พอดี
+                          #   weekly เป็น MANUAL RESUME → trigger เมื่อไหร่
+                          #   = สัญญาณบังคับกลับ demo + ทบทวน ไม่ใช่แค่พัก
   consecutive_losses:
     enabled       : true
-    count         : 10     # แพ้ติดกัน 5 ไม้ → หยุดพัก
+    count         : 1     # LIVE: แพ้ติด 4 ไม้ (≈ -$5) → พัก 4 ชม.
+                          #   (WR 44% แพ้ติด 4 มีโอกาส ~10%/สัปดาห์ = เจอได้
+                          #   แต่ควรพักจริง ไม่ใช่ 1 ชม. ที่ = ข้าม 4 tick)
     cooldown_hours: 1
   floating_dd:
     enabled : true
-    max_pct : 15.0        # floating drawdown (ยังไม่ปิด) เกินนี้ → หยุด
-    warn_pct: 70
+    max_pct : 10.0        # LIVE: 2 ไม้ (~2.8% exposure) ไม่มีทางลอยถึง 10%
+                          #   ถ้าถึง = มีอะไรผิดปกติร้ายแรง สมควรหยุด (manual resume)
+    warn_pct: 70          # เตือนที่ 70% ของ limit (= floating 7%)
 
 # เวลา reset ตัวนับ session-loss (symbol_settings.*.max_session_losses)
 daily_tracking:
   reset_hours_utc: [6, 13, 21]   # Reset ตอน Asia / London / NY เปิด
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 4. SIGNAL — โมเดลตัดสินใจ + SL/TP + regime
 # ══════════════════════════════════════════════════════════════════════
-
 # threshold การตัดสินใจของโมเดล
 signal:
   active_model                      : "ensemble"   # rule_based | xgb | lgbm | lstm | ensemble
   min_confidence                    : 0.42   # ขั้นต่ำที่จะเปิดไม้ (override ที่ symbol_settings)
-  # ✅ (2026-07-04) เกต per-regime ย้ายจาก hardcode ใน bot/regime.py มาปรับที่นี่
-  #   (กฎเหล็ก: ค่าจูนอยู่ที่ config) — ค่าด้านล่าง = ค่าเดิมเป๊ะ ไม่เปลี่ยนพฤติกรรม
-  #   ⚠️ อ่านตอน start เท่านั้น — แก้แล้วต้อง RESTART bot
   regime_conf_thresholds:
-    trending_up  : 0.50   # 🧪 EXPERIMENT (ปกติ 0.55)
-    trending_down: 0.50   # 🧪 EXPERIMENT (ปกติ 0.55)
-    ranging      : 0.52   # 🧪 EXPERIMENT (ปกติ 0.60)
-    volatile     : 0.70   # คงเดิม — volatile อันตรายจริง
-    uncertain    : 0.55   # 🧪 EXPERIMENT (ปกติ 0.65) — เกตที่ขังบอทมากสุด
+    trending_up  : 0.55
+    trending_down: 0.55
+    ranging      : 0.60
+    volatile     : 0.70
+    uncertain    : 0.65
   cooldown_min                      : 10     # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
   min_directional_prob              : 0.20   # sell_prob ขั้นต่ำ (มักอยู่ 0.15-0.25 ตอน trending)
   min_agree_for_directional_override: 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศได้
-
-# ระยะ SL/TP และพฤติกรรมตอนส่ง order
-# tp_ratio=1.8: TP=SL×1.8 → จุดคุ้มทุน WR=35.7% (ที่ WR40% = +0.12R กำไร)
+# ระยะ SL/TP และพฤติกรรมตอนส่ง order tp_ratio=1.8: TP=SL×1.8 → จุดคุ้มทุน WR=35.7% (ที่ WR40% = +0.12R กำไร)
 #   เดิม 0.7 ต้องการ WR 58.8% แต่ระบบทำได้ ~52% → ขาดทุน (ต้นตอเดิม)
 order:
-  sl_points:                 # ระยะ Stop Loss (points) ต่อ symbol
-    XAUUSD: 100
-    EURUSD:  80
-    GBPUSD:  90
+  sl_points:                 # ⚠️ ยังไม่ยืนยันว่า key นี้ถูกใช้จริง (กฎเหล็ก config!)
+                             #   หลักฐานแย้ง: SL จริงใน log = ATR% (EUR 114pt ≠ 80 เดิม,
+                             #   XAU 6770pt ≠ 100) → SL น่าจะมาจาก strategy ไม่ใช่ตรงนี้
+                             #   ห้ามพึ่งค่านี้จนกว่าไล่โค้ดเจอผู้อ่าน
+    XAUUSD: 200
+    EURUSD:  100
+    GBPUSD:  100
     default:  90
   tp_ratio: 1.6              # TP = SL × ค่านี้ (ต้อง > 1.0 ให้ไม้ชนะใหญ่กว่าไม้แพ้)
   min_rr  : 1.5             # R:R ขั้นต่ำที่ยอมรับ — ตั้งให้ ≤ tp_ratio เสมอ
@@ -204,11 +205,9 @@ regime_filter:
     - {regime: trending_down, signal: BUY}
     - {regime: trending_up,   signal: SELL}
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 5. FILTERS — ด่านเช็คก่อนเทรด (เวลา/ข่าว/spread)
 # ══════════════════════════════════════════════════════════════════════
-
 # ด่านเวลาแบบง่าย (ด่านสำรอง รองจาก session_filter) — เปิดกว้างทั้งวัน
 session:
   allowed_hours_utc:
@@ -237,10 +236,10 @@ session_filter:
 # บล็อกเทรดช่วงข่าวสำคัญ (high impact)
 news_filter:
   enabled         : true
-  buffer_minutes  : 15      # บล็อกกี่นาทีก่อน/หลังข่าว
+  buffer_minutes  : 15      # LIVE: คงเข้ม 15 นาที (spread ถ่างช่วงข่าวกิน SL แคบๆ ของเราแรง)
   high_impact_only: true
   fail_open       : true    # ดึงข่าวไม่ได้ → ปล่อยเทรดต่อ
-  cache_hours     : 6
+  cache_hours     : 1
 
 # spread กว้างเกิน limit → ไม่ส่ง order — จุดเดียวของระบบ
 spread_filter:
@@ -253,15 +252,10 @@ spread_filter:
     GBPUSD : 0.00050
     default: 0.00100
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 6. EXECUTION — จัดการ position หลังเปิดไม้ + override รายตัว
 # ══════════════════════════════════════════════════════════════════════
-
 # จัดการ position หลังเปิดไม้
-# ⚠️ NOT WIRED YET: ยังไม่มีโค้ดอ่าน (ไม่มี position_manager.py, ไม่มีใครเรียก
-#   update_trailing_stop) → breakeven/partial/trailing/time-exit ยังไม่ทำงานจริง
-#   ตั้ง enable_* = false ให้ backtest_engine รันแบบ pure SL/TP = ตรง live
 #   หน่วย (เมื่อ wire แล้ว): be/partial_rr = R เท่าระยะ SL, trailing_* = % ของราคา
 trade_management:
   enable_breakeven    : false
@@ -277,20 +271,20 @@ trade_management:
   max_hold_hours      : 8       # ถือเกิน 8 ชม. → ปิดตามเวลา (กันไม้ค้าง)
 
 # Override ค่า global (risk/signal) เป็นรายตัว — ใช้ที่ main.py + risk_manager.py
-# max_risk_pct = เพดานความเสี่ยงต่อไม้ (% ของพอร์ต)
 #   XAU 0.04: บัญชีเล็ก + lot floor 0.01 → ทอง 1 ไม้เสี่ยงขั้นต่ำ ~2.5%
 #   ตั้งต่ำกว่า ~0.025 ทองจะแทบไม่เทรดบนพอร์ตขนาดนี้
 symbol_settings:
   XAUUSD:
-    min_confidence     : 0.47   # 🧪 EXPERIMENT (ปกติ 0.52)
-    max_session_losses : 3     # แพ้ 3 ครั้ง → หยุด XAU จน reset session ถัดไป
-    risk_multiplier    : 0.50  # lot เล็กลงครึ่งหนึ่งเทียบ symbol อื่น
-    cooldown_after_loss: 60    # พัก 60 นาทีหลังแพ้
-    # ✅ Option 1 (บัญชีเล็ก): 0.04 → 0.02
-    #   ทอง 0.01 lot (floor ลดไม่ได้) เสี่ยง ~2.5% บน $315 / ~8% บน $100
-    #   เพดาน 0.02 < risk จริง → calculate_lot_size คืน 0.0 → ทอง skip ทุกไม้
-    #   = เทรดเฉพาะ FX ที่คุม risk ได้ตรงกว่า
-    max_risk_pct       : 0.03   # 🧪 EXPERIMENT (ปกติ 0.02) — ปลดทองบน demo, risk จริง ~2.5%/ไม้
+    min_confidence     : 0.52  # ค่าปกติ (ผล demo: เกต 0.47 แยกไม้ดี/แย่ได้ —
+                               #   ไม้ผ่าน +10.83, ไม้โดนตัด = แพ้จริงใน shadow)
+    max_session_losses : 3
+    risk_multiplier    : 0.50
+    cooldown_after_loss: 60
+    # 🔒 ทองปิดบน LIVE $100 โดยตั้งใจ: 0.01 lot (floor) เสี่ยงจริง $6.8-12.7/ไม้
+    #   = 7-13% ของพอร์ต → max_risk_pct 0.02 บล็อกทุกไม้อัตโนมัติ
+    # 🔓 เงื่อนไขปลด (เขียนล่วงหน้า กันใจร้อน): ทุน ≥ $600
+    #   (ไม้ทองแย่สุดที่เคยเห็น $12.7 จะ = ~2.1%) → ค่อยขยับเป็น 0.025
+    max_risk_pct       : 0.02
   EURUSD:
     min_confidence     : 0.42
     risk_multiplier    : 1.00
@@ -310,17 +304,13 @@ symbol_settings:
     cooldown_after_loss: 10
     max_risk_pct       : 0.015
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 7. TRAINING — พารามิเตอร์ตอน train โมเดล (scripts/retrain_all.py)
 # ══════════════════════════════════════════════════════════════════════
-
 training:
   label_method  : "triple_barrier"
   forward_bars  : 6       # มองไปข้างหน้า 6 แท่ง (90 นาที) ให้ราคาแตะ barrier
-  # ✅ (2026-07-01) barrier สมมาตร ±tb_atr_mult×ATR ทั้งสองฝั่ง
   #   เดิม hardcode ในโค้ด: บน 2.0 / ล่าง 1.5 (ไม่สมมาตร) → ราคาแตะฝั่งล่าง
-  #   ง่ายกว่าอย่างเป็นระบบ → label SELL=30.1% >> BUY=18.6% → โมเดลเอียง SELL
   #   ค่านี้: สูงขึ้น = สัญญาณน้อยแต่ชัด (HOLD เยอะ) | ต่ำลง = สัญญาณถี่แต่ noise เพิ่ม
   tb_atr_mult   : 1.2
   min_return_pct: 0.0007  # ใช้กับ label_method simple/risk_adjusted (fallback ของ triple_barrier)
@@ -339,11 +329,9 @@ training:
     feature_fraction: 0.8
     num_boost_round : 1000
 
-
 # ══════════════════════════════════════════════════════════════════════
 # 8. SYSTEM — paths, logging, dashboard, แจ้งเตือน, API keys
 # ══════════════════════════════════════════════════════════════════════
-
 # โฟลเดอร์ที่บอทใช้อ่าน/เขียน
 paths:
   data_raw      : "data/raw"
@@ -358,7 +346,6 @@ paths:
 logging:
   shadow_trades : true    # true = บันทึกไม้ที่โดน gate ตัด → logs/shadow_trades.jsonl
                           # (เก็บไว้วัด edge/หาบั๊ก gate โดยไม่เสียเงินจริง)
-
 # Streamlit dashboard
 dashboard:
   port               : 8501

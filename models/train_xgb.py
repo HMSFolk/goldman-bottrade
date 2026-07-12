@@ -380,8 +380,17 @@ def train_xgboost(
     X, y, all_features = load_and_prepare(symbol, timeframe)
 
     # ── 2. Feature Selection ───────────────────────────────────
+    # ✅ FIX BACKLOG-1 (2026-07-11): เดิม select_top_features(X, y) คัดจาก
+    #   "ข้อมูลทั้งก้อน" → MI เห็น label ของช่วงที่ walk-forward ใช้เป็นข้อสอบ
+    #   = selection leak → acc/f1 ที่รายงาน optimistic เกินจริง
+    #   แก้: คัดจาก 80% แรกเท่านั้น (ช่วงท้ายไม่เคยถูกแอบดู)
+    #   ⚠️ ผลข้างเคียงที่ตั้งใจ: เลข CV รอบ retrain หน้าจะ "ต่ำลงแต่จริง"
+    #   ห้ามตกใจ และห้ามเทียบตรงกับ report รุ่นก่อน (คนละกติกา)
     if len(all_features) > top_features:
-        selected = select_top_features(X, y, top_n=top_features)
+        _split_fs = int(len(X) * 0.80)
+        selected  = select_top_features(
+            X.iloc[:_split_fs], y.iloc[:_split_fs], top_n=top_features
+        )
         X = X[selected]
     else:
         selected = all_features
@@ -648,6 +657,10 @@ def load_model(symbol: str) -> dict:
     return payload
 
 
+# ✅ FIX BACKLOG-2 (2026-07-11): กัน warning ซ้ำทุก tick
+_MISSING_FEAT_WARNED: set = set()
+
+
 def predict(
     payload:    dict,
     df:         pd.DataFrame,
@@ -666,6 +679,19 @@ def predict(
     #   predict ล้ม → ensemble มองว่าโมเดลใช้ไม่ได้ (เทรดด้วยโมเดลน้อยลง)
     #   reindex เติม feature ที่หายด้วย 0 (neutral) ให้ shape/ลำดับตรงเสมอ
     X_live   = df.reindex(columns=features).tail(1).fillna(0)
+
+    # ✅ FIX BACKLOG-2 (2026-07-11): เตือนเมื่อ live features หาย (เดิมเติม 0 เงียบ)
+    #   log ครั้งเดียวต่อ (symbol, จำนวนหาย) ต่อ process — ไม่กระทบพฤติกรรม
+    _missing = [f for f in features if f not in df.columns]
+    if _missing:
+        _sym = payload.get('meta', {}).get('symbol', '?')
+        _key = (_sym, len(_missing))
+        if _key not in _MISSING_FEAT_WARNED:
+            _MISSING_FEAT_WARNED.add(_key)
+            log.warning(
+                f"⚠️ XGB {_sym}: live features หาย {len(_missing)}/"
+                f"{len(features)} ตัว (เติม 0) เช่น {_missing[:5]}"
+            )
 
     proba    = model.predict_proba(X_live)[0]   # [sell, hold, buy]
     pred_idx = proba.argmax()
