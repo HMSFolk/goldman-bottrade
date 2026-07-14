@@ -1,186 +1,148 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  🔴 CONFIG LIVE — ทุนจริง $100 (สร้าง 2026-07-11 จาก config_main)   ║
-# ║                                                                    ║
-# ║  GO-LIVE CHECKLIST (ครบทุกข้อก่อนใช้ไฟล์นี้):                        ║
-# ║   [ ] เห็น log "✅ CB pnl source: MT5 deals" หลัง deploy risk fix   ║
-# ║   [ ] analyze_shadow รอบจันทร์ปิดเคส GBP SELL คลัสเตอร์แล้ว          ║
-# ║   [ ] เทส CB: จำกัด loss_usd ชั่วคราว=1 บน demo 1 วัน → เห็น trigger ║
-# ║                                                                    ║
-# ║  กฎถอย (ตกลงไว้ล่วงหน้า — ห้ามต่อรองตอนพอร์ตแดง):                    ║
-# ║   • balance < $90 (−10%)          → กลับ demo + วิเคราะห์            ║
-# ║   • 15 ไม้แรก E < 0               → กลับ demo + วิเคราะห์            ║
-# ║   • weekly CB trigger (10%)       → กลับ demo อัตโนมัติโดยนิยาม      ║
-# ║  ความคาดหวังที่ตรงจริง: E≈+0.14R × R≈$1.2 × 1-3 ไม้/วัน             ║
-# ║   ≈ $0.2-0.5/วัน — live $100 คือ "สอบจริงของระบบ" ไม่ใช่รายได้       ║
-# ╚══════════════════════════════════════════════════════════════════╝
-# โครงสร้าง 8 หมวด:
-#   1. CONNECTION   broker, mt5
-#   2. UNIVERSE     symbols, symbol_map, data
-#   3. RISK         risk, circuit_breaker, daily_tracking
-#   4. SIGNAL       signal, order, regime_*, strategy_filters
-#   5. FILTERS      session, session_filter, news_filter, spread_filter
-#   6. EXECUTION    trade_management, symbol_settings
-#   7. TRAINING     training
-#   8. SYSTEM       paths, logging, dashboard, notifications, api_keys
-# ══════════════════════════════════════════════════════════════════════
-# 1. CONNECTION
-# ══════════════════════════════════════════════════════════════════════
-# broker ที่ใช้อยู่ — เปลี่ยน broker แก้แค่ตรงนี้ (ต้องมี mapping ใน symbol_map)
+# ═══════════════════════════════════════════════════════════════
+#  CONFIG LIVE — ทุนจริง $100
+#  กฎถอย: balance < $90 | 15 ไม้แรก E<0 | weekly CB → กลับ demo
+#  อัปเดต 2026-07-12
+# ═══════════════════════════════════════════════════════════════
+
+# ────────────── โบรกเกอร์ ──────────────
 broker:
-  name: "exness"
+  name: "exness"                     # ชื่อโบรก → ใช้เลือกชื่อ symbol ใน symbol_map ด้านล่าง
 
-# การเชื่อมต่อ/reconnect กับ MetaTrader5
+# ────────────── การเชื่อมต่อ MT5 ──────────────
 mt5:
-  timeout_sec: 30
-  max_reconnect_attempts: 5
-  reconnect_delay_sec: 10
-  reconnect:
-    enabled              : true
-    max_retries          : 10
-    base_sleep_sec       : 5     # รอกี่วินาทีก่อนลองใหม่ครั้งแรก
-    max_sleep_sec        : 300   # รอนานสุดกี่วินาทีระหว่างลองใหม่
-    health_check_interval: 60
-    alert_after_retries  : 3     # ลองครบกี่ครั้งแล้วค่อยแจ้งเตือน
-    notify_telegram      : true
+  timeout_sec: 30                    # รอ MT5 ตอบกี่วิ ก่อนถือว่า timeout
+  max_reconnect_attempts: 5          # (ค่าเก่า/สำรอง) จำนวนครั้งต่อใหม่แบบพื้นฐาน
+  reconnect_delay_sec: 10            # (ค่าเก่า/สำรอง) หน่วงกี่วิระหว่างต่อใหม่
+  reconnect:                         # ระบบต่อใหม่อัตโนมัติตัวหลัก
+    enabled              : true      # เปิดใช้ auto-reconnect
+    max_retries          : 10        # ลองใหม่สูงสุดกี่ครั้งก่อนยอมแพ้ | เพิ่ม = ทนเน็ตหลุดนานขึ้น
+    base_sleep_sec       : 5         # หน่วงครั้งแรก 5 วิ แล้วเพิ่มขึ้นเรื่อยๆ (backoff)
+    max_sleep_sec        : 300       # หน่วงสูงสุดไม่เกิน 5 นาที
+    health_check_interval: 60        # เช็คสุขภาพ connection ทุก 60 วิ
+    alert_after_retries  : 3         # ลองเกิน 3 ครั้งแล้วยังไม่ติด → ส่งแจ้งเตือน
+    notify_telegram      : true      # แจ้งเตือนเรื่อง connection ผ่าน Telegram
 
-# ══════════════════════════════════════════════════════════════════════
-# 2. UNIVERSE — symbol ที่เทรด + การแปลงชื่อ broker + ข้อมูลที่ดึง
-# ══════════════════════════════════════════════════════════════════════
-# คู่เงินที่เทรด — ใช้ชื่อกลาง (ไม่มี m) ทุกที่ ชื่อจริง broker แปลงผ่าน symbol_map
+# ────────────── สินทรัพย์ + timeframe ──────────────
 symbols:
-  active:
+  active:                            # คู่ที่บอทเทรด — ลบออก = หยุดเทรดคู่นั้น
     - "XAUUSD"
     - "EURUSD"
     - "GBPUSD"
-  primary_timeframe: "M15"   # timeframe หลักที่ใช้ตัดสินใจเทรด
-  htf_timeframes:            # timeframe สูงกว่า ใช้เช็คเทรนด์ใหญ่ (HTF filter)
+  primary_timeframe: "M15"           # TF หลักที่ใช้ตัดสินใจเข้าไม้
+  htf_timeframes:                    # TF สูงกว่า ใช้ทำ features ประกอบ (เทรนด์ใหญ่)
     - "H1"
     - "H4"
 
-# ชื่อ "กลาง" (ซ้าย) → ชื่อจริงของแต่ละ broker (ขวา)
-# ย้าย broker: 1) เปลี่ยน broker.name  2) เพิ่มแถวที่นี่ถ้ายังไม่มี
-symbol_map:
+# ────────────── แปลงชื่อ symbol กลาง → ชื่อจริงของโบรก ──────────────
+symbol_map:                          # Exness ใช้ชื่อลงท้าย m — เปลี่ยนโบรกต้องแก้ตรงนี้
   XAUUSD:
     exness     : "XAUUSDm"
   EURUSD:
     exness     : "EURUSDm"
   GBPUSD:
     exness     : "GBPUSDm"
-# จำนวนแท่งราคาที่ดึงเก็บ + symbol ฝั่ง macro ที่ใช้เป็น feature เสริม
+
+# ────────────── ข้อมูลย้อนหลัง ──────────────
 data:
-  history_bars:
-    M15: 50000
+  history_bars:                      # ดึงแท่งเทียนย้อนหลังกี่แท่งต่อ TF (เทรน/คำนวณ features)
+    M15: 50000                       # ~1.4 ปี | เพิ่ม = ข้อมูลเยอะขึ้นแต่ช้าลง
     H1:  12000
     H4:  4000
-  # ✅ (2026-07-01) กฎเหล็ก: collect_macro.py อ่าน key นี้ (เดิมไม่มีใน config
-  #   โค้ดใช้ default 730 เงียบๆ) — ดึง macro ย้อนหลังกี่วัน
-  macro_history_days: 730
-  macro_symbols:
-    DXY:    "DX-Y.NYB"
-    US10Y:  "^TNX"
-    VIX:    "^VIX"
-    SILVER: "SI=F"
-    OIL:    "CL=F"
+  macro_history_days: 730            # ดึงข้อมูล macro ย้อนหลัง 2 ปี
+  macro_symbols:                     # ตัวชี้วัด macro ที่ใช้เป็น features (ticker ของ Yahoo)
+    DXY:    "DX-Y.NYB"               # ดัชนีดอลลาร์
+    US10Y:  "^TNX"                   # ผลตอบแทนพันธบัตร US 10 ปี
+    VIX:    "^VIX"                   # ดัชนีความกลัว
+    SILVER: "SI=F"                   # เงิน (สัมพันธ์กับทอง)
+    OIL:    "CL=F"                   # น้ำมัน
 
-# ══════════════════════════════════════════════════════════════════════
-# 3. RISK — คุมความเสี่ยงต่อไม้/ต่อวัน + หยุดอัตโนมัติ
-# ══════════════════════════════════════════════════════════════════════
-# กฎคุมความเสี่ยงต่อไม้ (limit ขาดทุนรายวันอยู่ที่ circuit_breaker)
+# ────────────── ความเสี่ยงและจำนวนไม้ ──────────────
+#  ⚠️ ทุน $100: lot ขั้นต่ำ 0.01 ทำให้ FX เสี่ยงจริง ~1.1-1.4%/ไม้เสมอ
+#  ปุ่มคุมความเสี่ยงตัวจริง = max_risk_pct รายสกุล + จำนวนไม้ + circuit_breaker
 risk:
-  risk_per_trade           : 0.01 
-  max_open_trades          : 2      # LIVE $100: 2 ไม้รวม (EUR 1 + GBP 1, ทองปิด)
-  min_lot                  : 0.01
-  max_lot                  : 0.10   # LIVE: ลดเพดาน lot — บน $100 ไม่มีเหตุให้เกิน 0.10
-  max_positions_per_symbol : 1      # LIVE $100: 1 ไม้/สกุล (เดิม demo 2)
-                                     #   เหตุผล: ไม้ที่ 2 ไม่เพิ่ม E ต่อ decision แค่เพิ่ม
-                                     #   ขนาด (พฤ 9 ก.ค. การเบิ้ลไม้ขยายวันแพ้เป็น 2 เท่า)
-                                     #   + สถิติ per-decision สะอาดขึ้นสำหรับรอบวิเคราะห์
-  add_same_direction_only  : true   # เพิ่ม position ที่ 2 ได้เฉพาะทิศเดิม (ห้ามสวน)
-  add_position_min_conf    : 0.50   # confidence ขั้นต่ำก่อนเพิ่ม position ที่ 2
-  add_position_min_agree   : 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันก่อนเพิ่ม
-  add_only_in_profit       : true   # เติมไม้ที่ 2+ ได้เฉพาะตอนไม้เดิมลอยกำไร
+  risk_per_trade           : 0.005   # เป้าเสี่ยง 0.5%/ไม้ — มีผลจริงเมื่อทุนโตพอ
+  max_open_trades          : 5       # ถือพร้อมกันสูงสุด 5 ไม้ (1 ไม้ × 5 คู่)
+  min_lot                  : 0.01    # lot ต่ำสุด (พื้นของโบรก ลดกว่านี้ไม่ได้)
+  max_lot                  : 0.10    # lot สูงสุด กันคำนวณพลาดแล้วเปิดไม้ยักษ์
+  max_positions_per_symbol : 2      # 1 ไม้ต่อคู่ — กันเบิ้ลไม้ทิศเดียวกัน
+  add_same_direction_only  : true    # (กลุ่ม add_* ไม่ทำงานเมื่อจำกัด 1 ไม้/คู่)
+  add_position_min_conf    : 0.51    #   └ ความมั่นใจขั้นต่ำถ้าจะเติมไม้
+  add_position_min_agree   : 2       #   └ โมเดลเห็นตรงกันอย่างน้อยกี่ตัว
+  add_only_in_profit       : true    #   └ เติมได้เฉพาะตอนไม้แรกกำไร
 
-# หยุดเทรดอัตโนมัติเมื่อขาดทุนเกิน threshold — จุดเดียวของระบบสำหรับ daily-loss
+# ────────────── เบรกอัตโนมัติ (circuit breaker) ──────────────
+#  ลดค่า % = หยุดไวขึ้น ปลอดภัยขึ้นแต่เสียโอกาส | เพิ่ม = กลับกัน
 circuit_breaker:
-  enabled        : true
-  notify_telegram: true
-  daily:
+  enabled        : true              # สวิตช์ใหญ่ของระบบเบรกทั้งหมด
+  notify_telegram: true              # เบรกทำงานเมื่อไหร่ แจ้ง Telegram
+  daily:                             # เบรกรายวัน
     enabled    : true
-    loss_pct   : 10.0      # LIVE $100: $5/วัน ≈ แพ้ 3-4 ไม้ FX → พอให้เทรดทั้งวัน
-                          #   แต่ตัดวัน chop แบบ พฤ 9 ก.ค. (-$7.2) ก่อนบานปลาย
-    loss_usd   : null
-    auto_resume: true     # resume เองวันถัดไป 00:05 UTC
-  weekly:
+    loss_pct   : 12.0                # ขาดทุนรวมวันนี้เกิน 12% ($12) → พักถึง 00:05 UTC
+    loss_usd   : null                # ใส่เลข USD = ใช้แทน % (ตั้ง 1 ไว้เทสระบบได้)
+    auto_resume: true                # ข้ามวันแล้วกลับมาเทรดเอง ไม่ต้องสั่ง
+  weekly:                            # เบรกรายสัปดาห์
     enabled : true
-    loss_pct: 10.0        # LIVE: 10% = จุด "กฎถอย" ตามแผนเกต live พอดี
-                          #   weekly เป็น MANUAL RESUME → trigger เมื่อไหร่
-                          #   = สัญญาณบังคับกลับ demo + ทบทวน ไม่ใช่แค่พัก
-  consecutive_losses:
+    loss_pct: 15.0                   # สะสม 7 วันเกิน 15% → หยุด ต้องสั่ง /resume เอง
+  consecutive_losses:                # เบรกแพ้ติดกัน
     enabled       : true
-    count         : 1     # LIVE: แพ้ติด 4 ไม้ (≈ -$5) → พัก 4 ชม.
-                          #   (WR 44% แพ้ติด 4 มีโอกาส ~10%/สัปดาห์ = เจอได้
-                          #   แต่ควรพักจริง ไม่ใช่ 1 ชม. ที่ = ข้าม 4 tick)
-    cooldown_hours: 1
-  floating_dd:
+    count         : 3                # แพ้ 1 ไม้ = พักทันที (จังหวะหายใจ กัน revenge trade)
+    cooldown_hours: 1                # พัก 1 ชม. แล้วนับใหม่
+  floating_dd:                       # เบรกขาดทุน "ลอย" (ไม้ที่ยังไม่ปิด)
     enabled : true
-    max_pct : 10.0        # LIVE: 2 ไม้ (~2.8% exposure) ไม่มีทางลอยถึง 10%
-                          #   ถ้าถึง = มีอะไรผิดปกติร้ายแรง สมควรหยุด (manual resume)
-    warn_pct: 70          # เตือนที่ 70% ของ limit (= floating 7%)
+    max_pct : 10.0                   # ขาดทุนลอยเกิน 10% ของ balance → หยุด (manual)
+    warn_pct: 70                     # เตือนล่วงหน้าเมื่อถึง 70% ของ limit (= ลอย -7%)
 
-# เวลา reset ตัวนับ session-loss (symbol_settings.*.max_session_losses)
+# ────────────── เวลารีเซ็ตตัวนับแพ้ ──────────────
 daily_tracking:
-  reset_hours_utc: [6, 13, 21]   # Reset ตอน Asia / London / NY เปิด
+  reset_hours_utc: [6, 13, 21]       # รีเซ็ตตัวนับแพ้รายเซสชันที่ 6/13/21 UTC (ตามรอบตลาด)
 
-# ══════════════════════════════════════════════════════════════════════
-# 4. SIGNAL — โมเดลตัดสินใจ + SL/TP + regime
-# ══════════════════════════════════════════════════════════════════════
-# threshold การตัดสินใจของโมเดล
+# ────────────── เกตสัญญาณชั้นแรก ──────────────
+#  เพิ่มค่า threshold = เทรดน้อยลง คัดมากขึ้น | ลด = เข้าไม้บ่อยขึ้น
 signal:
-  active_model                      : "ensemble"   # rule_based | xgb | lgbm | lstm | ensemble
-  min_confidence                    : 0.42   # ขั้นต่ำที่จะเปิดไม้ (override ที่ symbol_settings)
-  regime_conf_thresholds:
-    trending_up  : 0.55
-    trending_down: 0.55
-    ranging      : 0.60
-    volatile     : 0.70
-    uncertain    : 0.65
-  cooldown_min                      : 10     # พักกี่นาทีหลังเทรดก่อนเทรดรอบใหม่
-  min_directional_prob              : 0.20   # sell_prob ขั้นต่ำ (มักอยู่ 0.15-0.25 ตอน trending)
-  min_agree_for_directional_override: 2      # ต้อง >= 2/3 โมเดลเห็นตรงกันจึง override ทิศได้
-# ระยะ SL/TP และพฤติกรรมตอนส่ง order tp_ratio=1.8: TP=SL×1.8 → จุดคุ้มทุน WR=35.7% (ที่ WR40% = +0.12R กำไร)
-#   เดิม 0.7 ต้องการ WR 58.8% แต่ระบบทำได้ ~52% → ขาดทุน (ต้นตอเดิม)
+  active_model                      : "ensemble"  # ใช้โมเดลรวม (lgbm+xgb+lstm+rule)
+  min_confidence                    : 0.42        # ความมั่นใจขั้นต่ำสุดพื้นฐาน (ก่อนแยก regime)
+  regime_conf_thresholds:            # ขั้นต่ำแยกตามสภาพตลาด
+    trending_up  : 0.52              # ตลาดขาขึ้นชัด
+    trending_down: 0.52              # ตลาดขาลงชัด
+    ranging      : 0.52              # ตลาดไซด์เวย์ (rule weight สูง — คุมแน่นหน่อย)
+    volatile     : 0.70              # ตลาดผันผวนแรง — คัดโหดสุด
+    uncertain    : 0.59              # ตลาดอ่านไม่ออก — โซนอันตรายที่เคยแพ้จริง (chop 9 ก.ค.)
+  cooldown_min                      : 20          # หลังปิดไม้ รอ 20 นาทีค่อยเข้าใหม่ (กัน re-entry หลัง SL)
+  min_directional_prob              : 0.20        # prob ทิศทางขั้นต่ำที่ยอมรับ
+  min_agree_for_directional_override: 2           # โมเดลเห็นตรงกันกี่ตัวถึง override ทิศได้
+
+# ────────────── ออเดอร์: SL/TP ──────────────
+#  SL จริงคำนวณจาก ATR% ใน strategy (พื้น 0.1% ของราคา) — ค่าล่างนี้เป็น fallback
 order:
-  sl_points:                 # ⚠️ ยังไม่ยืนยันว่า key นี้ถูกใช้จริง (กฎเหล็ก config!)
-                             #   หลักฐานแย้ง: SL จริงใน log = ATR% (EUR 114pt ≠ 80 เดิม,
-                             #   XAU 6770pt ≠ 100) → SL น่าจะมาจาก strategy ไม่ใช่ตรงนี้
-                             #   ห้ามพึ่งค่านี้จนกว่าไล่โค้ดเจอผู้อ่าน
+  sl_points:                         # ⚠️ ใช้เฉพาะตอน ATR พังเท่านั้น (key รายสกุลไม่ถูกอ่าน)
     XAUUSD: 200
     EURUSD:  100
     GBPUSD:  100
     default:  90
-  tp_ratio: 1.6              # TP = SL × ค่านี้ (ต้อง > 1.0 ให้ไม้ชนะใหญ่กว่าไม้แพ้)
-  min_rr  : 1.5             # R:R ขั้นต่ำที่ยอมรับ — ตั้งให้ ≤ tp_ratio เสมอ
-  max_slippage         : 10      # slippage ที่ยอมรับได้ (points)
-  magic_number          : 20250101   # เลขระบุ order ของบอท (กันชนกับ EA อื่น)
-  order_comment        : "aurum_bot_v1"
+  tp_ratio: 1.65                      # TP = 1.6 เท่าของ SL → คุ้มทุนที่ winrate 38.5%
+  min_rr  : 1.5                      # RR ต่ำกว่า 1.5 ไม่เอา
+  max_slippage         : 10          # ยอมให้ราคาไหลได้สูงสุด 10 points ตอนส่งคำสั่ง
+  magic_number          : 20250101   # เลขประจำตัวไม้ของบอท — ใช้แยกไม้บอทออกจากไม้มือ
+  order_comment        : "aurum_bot_v1"  # ข้อความติดไม้ ดูใน MT5 ได้
 
-# ตรวจจับสภาพตลาด (เทรนด์/sideway/ผันผวน)
-# hysteresis_confirm=3: ต้องเห็น regime ใหม่ติดกัน 3 ครั้งก่อนเปลี่ยน (กันกระพริบ)
+# ────────────── ตัวจำแนกสภาพตลาด (regime) ──────────────
+#  ใช้ ADX + Hurst + ATR → ผลไปเลือก threshold และ weights ด้านบน/ล่าง
 regime_detection:
-  adx_period       : 14
-  adx_trend_thresh : 25     # ADX สูงกว่านี้ = เทรนด์
-  adx_range_thresh : 20     # ADX ต่ำกว่านี้ = sideway
-  hurst_trend      : 0.55
-  hurst_range      : 0.45
-  atr_lookback     : 100
-  vol_high_mult    : 1.5
-  ema_fast         : 20
+  adx_period       : 14              # คาบคำนวณ ADX
+  adx_trend_thresh : 25              # ADX > 25 = มีเทรนด์
+  adx_range_thresh : 20              # ADX < 20 = ไซด์เวย์
+  hurst_trend      : 0.55            # Hurst > 0.55 = พฤติกรรมเทรนด์
+  hurst_range      : 0.45            # Hurst < 0.45 = พฤติกรรม mean-revert
+  atr_lookback     : 100             # ย้อนดู ATR กี่แท่งเพื่อวัดความผันผวนปกติ
+  vol_high_mult    : 1.5             # ATR เกิน 1.5 เท่าของปกติ = volatile
+  ema_fast         : 20              # EMA เร็ว/ช้า/ยาว ใช้ดูทิศเทรนด์
   ema_slow         : 50
   ema_trend        : 200
-  cache_ttl_minutes: 15
-  hysteresis_confirm: 3
+  cache_ttl_minutes: 15              # จำผล regime ไว้ 15 นาที ไม่คำนวณซ้ำถี่ๆ
+  hysteresis_confirm: 3              # ต้องเห็น regime ใหม่ 3 ครั้งติดถึงยอมเปลี่ยน (กันสวิงไปมา)
 
-# น้ำหนักของแต่ละโมเดลใน ensemble ตาม regime
+# ────────────── น้ำหนักโมเดลแยกตาม regime ──────────────
+#  น้ำหนักรวมต้อง = 1.0 ต่อแถว | ตลาดเทรนด์เชื่อ ML มาก ไซด์เวย์เชื่อ rule มาก
 regime_weights:
   trending_up  : {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
   trending_down: {lgbm: 0.40, xgb: 0.35, lstm: 0.15, rule: 0.10}
@@ -188,179 +150,162 @@ regime_weights:
   volatile     : {lgbm: 0.33, xgb: 0.33, lstm: 0.34, rule: 0.00}
   uncertain    : {lgbm: 0.30, xgb: 0.25, lstm: 0.20, rule: 0.25}
 
-# เปิด/ปิด filter แต่ละตัวก่อนยืนยันสัญญาณ
+# ────────────── สวิตช์เปิด/ปิด filter รายตัว ──────────────
 strategy_filters:
-  use_squeeze_filter   : false
-  use_htf_filter       : false
-  use_atr_low_filter   : false
-  use_regime_filter    : true    # บล็อกเทรดสวนเทรนด์ใหญ่
-  use_final_conf_check : false
+  use_squeeze_filter   : false       # กรองช่วง Bollinger บีบตัว — ปิดอยู่
+  use_htf_filter       : false       # กรองตามเทรนด์ TF ใหญ่ — ปิดอยู่
+  use_atr_low_filter   : false       # กรองช่วง ATR ต่ำผิดปกติ — ปิดอยู่
+  use_regime_filter    : true        # ✅ ด่านห้ามสวนเทรนด์ (ตั้งค่าบล็อกถัดไป)
+  use_final_conf_check : false       # เช็คความมั่นใจซ้ำรอบสุดท้าย — ปิดอยู่
 
-# กฎละเอียดของ use_regime_filter
+# ────────────── ด่าน regime: ห้ามสวนเทรนด์ ──────────────
+#  (shadow กำลังเก็บหลักฐานว่าด่านนี้ช่วยหรือขวาง — อย่าแก้จนกว่าข้อมูลครบ)
 regime_filter:
-  sell_override_enabled : true   # force SELL เมื่อโมเดล bias HOLD แต่เทรนด์ลงชัด (false ปิด)
-  sell_override_min_adx : 28     # ต้อง ADX ≥ นี้ + trending_down
-  sell_override_min_prob: 0.45   # ต้อง sell_prob ≥ นี้ (เข้มกว่า 0.35 กันสัญญาณอ่อน)
-  blocked_combos:
-    - {regime: trending_down, signal: BUY}
-    - {regime: trending_up,   signal: SELL}
+  sell_override_enabled : true       # เปิดช่องยกเว้นให้ SELL สวนได้ ถ้าเงื่อนไขแน่นพอ
+  sell_override_min_adx : 28         #   └ ADX ต้องเกิน 28
+  sell_override_min_prob: 0.45       #   └ prob ฝั่ง SELL ต้องเกิน 0.45
+  blocked_combos:                    # คู่ที่ห้ามเด็ดขาด
+    - {regime: trending_down, signal: BUY}   # ขาลงห้าม BUY
+    - {regime: trending_up,   signal: SELL}  # ขาขึ้นห้าม SELL (เว้นเข้าเงื่อนไข override)
 
-# ══════════════════════════════════════════════════════════════════════
-# 5. FILTERS — ด่านเช็คก่อนเทรด (เวลา/ข่าว/spread)
-# ══════════════════════════════════════════════════════════════════════
-# ด่านเวลาแบบง่าย (ด่านสำรอง รองจาก session_filter) — เปิดกว้างทั้งวัน
+# ────────────── หน้าต่างเวลาแบบหยาบ (สำรอง) ──────────────
 session:
-  allowed_hours_utc:
+  allowed_hours_utc:                 # เปิดกว้าง 0-24 — ให้ session_filter ด้านล่างคุมจริง
     start: 0
     end: 24
-  skip_weekends     : true
+  skip_weekends     : true           # เสาร์-อาทิตย์ไม่เทรด
 
-# ด่านเวลาหลัก (DST-aware) — เช็คก่อนสร้าง signal ทุกครั้ง
+# ────────────── ด่านเซสชันหลัก ──────────────
 session_filter:
-  enabled     : true
-  skip_weekend: true
-  use_dst     : true
-  overlap_only: false
-  allowed_sessions:        # session ทั้งหมดที่ระบบรู้จัก
-    - London    # 07:00-16:00 UTC
-    - New York  # 12:00-21:00 UTC (EDT) / 13:00-22:00 UTC (EST)
-    - Tokyo     # 00:00-09:00 UTC
-    - Sydney    # 21:00-06:00 UTC
-  symbol_sessions:          # session ที่อนุญาตต่อ symbol
+  enabled     : true                 # เปิดใช้ด่านเซสชัน
+  skip_weekend: true                 # ข้ามวันหยุด
+  use_dst     : true                 # ปรับตามเวลาออมแสงอัตโนมัติ
+  overlap_only: false                # true = เทรดเฉพาะช่วงตลาดซ้อนกัน (เช่น London∩NY)
+  allowed_sessions:                  # เซสชันที่อนุญาตทั้งระบบ
+    - London
+    - New York
+    - Tokyo
+    - Sydney
+  symbol_sessions:                   # เซสชันที่อนุญาตรายคู่ — ตัดชื่อออก = คู่นั้นไม่เทรดช่วงนั้น
     XAUUSD: ["Sydney", "Tokyo", "London", "New York"]
     EURUSD: ["Sydney", "Tokyo", "London", "New York"]
     GBPUSD: ["Sydney", "Tokyo", "London", "New York"]
-  friday_close_hour: 21    # ตลาดปิดวันศุกร์กี่โมง UTC
-  monday_open_hour :  7    # ตลาดเปิดวันจันทร์กี่โมง UTC
+  friday_close_hour: 21              # ศุกร์หยุดเข้าไม้ใหม่หลัง 21 UTC (กัน gap ข้ามสัปดาห์)
+  monday_open_hour :  7              # จันทร์เริ่มเทรดหลัง 7 UTC (รอ spread ต้นสัปดาห์แคบลง)
 
-# บล็อกเทรดช่วงข่าวสำคัญ (high impact)
+# ────────────── เว้นเทรดรอบข่าวแรง ──────────────
 news_filter:
-  enabled         : true
-  buffer_minutes  : 15      # LIVE: คงเข้ม 15 นาที (spread ถ่างช่วงข่าวกิน SL แคบๆ ของเราแรง)
-  high_impact_only: true
-  fail_open       : true    # ดึงข่าวไม่ได้ → ปล่อยเทรดต่อ
-  cache_hours     : 1
+  enabled         : true             # เปิดใช้
+  buffer_minutes  : 15               # งดเข้าไม้ ±15 นาทีรอบข่าว (กัน spread ถ่างกิน SL)
+  high_impact_only: true             # สนใจเฉพาะข่าวแรง (แดง)
+  fail_open       : true             # ดึงข่าวไม่ได้ = เทรดต่อ ไม่ freeze ทั้งบอท
+  cache_hours     : 1                # จำปฏิทินข่าวไว้ 1 ชม.
 
-# spread กว้างเกิน limit → ไม่ส่ง order — จุดเดียวของระบบ
+# ────────────── บล็อกไม้ตอน spread ถ่าง ──────────────
 spread_filter:
-  enabled  : true
-  fail_open: true   # เช็ค spread ไม่ได้ → ปล่อยเทรดต่อ
-  warn_pct : 70     # spread ใกล้ limit กี่% ถึง log เตือน
-  limits:
-    XAUUSD : 0.80
-    EURUSD : 0.00030
-    GBPUSD : 0.00050
+  enabled  : true                    # เปิดใช้
+  fail_open: true                    # อ่าน spread ไม่ได้ = ปล่อยผ่าน
+  warn_pct : 70                      # เตือนเมื่อ spread ถึง 70% ของ limit
+  limits:                            # spread เกินค่านี้ = ไม่เข้าไม้ (หน่วยราคา)
+    XAUUSD : 0.80                    # ทอง: เกิน $0.80 ไม่เอา
+    EURUSD : 0.00030                 # 3 pips
+    GBPUSD : 0.00050                 # 5 pips
     default: 0.00100
 
-# ══════════════════════════════════════════════════════════════════════
-# 6. EXECUTION — จัดการ position หลังเปิดไม้ + override รายตัว
-# ══════════════════════════════════════════════════════════════════════
-# จัดการ position หลังเปิดไม้
-#   หน่วย (เมื่อ wire แล้ว): be/partial_rr = R เท่าระยะ SL, trailing_* = % ของราคา
+# ────────────── ⚠️ NOT WIRED — ยังไม่มีโค้ดอ่านบล็อกนี้ ──────────────
+#  ตั้งค่าไว้ล่วงหน้าเฉยๆ ปรับอะไรตรงนี้ "ไม่มีผลใดๆ" จนกว่าจะเขียนโค้ดรองรับ
 trade_management:
-  enable_breakeven    : false
-  enable_partial_close: false
-  enable_trailing     : false
-  enable_time_exit    : false
+  enable_breakeven    : false        # เลื่อน SL ไปจุดคุ้มทุนเมื่อกำไรถึงเป้า
+  enable_partial_close: false        # ปิดไม้บางส่วนเมื่อถึง RR ที่ตั้ง
+  enable_trailing     : false        # trailing stop
+  enable_time_exit    : false        # ปิดไม้เมื่อถือครบเวลา
+  be_after_rr         : 0.8          #   └ ขยับ BE เมื่อกำไรถึง 0.8R
+  partial_close_rr    : 1.0          #   └ ปิดบางส่วนที่ 1.0R
+  partial_close_pct   : 0.50         #   └ ปิดครึ่งไม้
+  trailing_start_pct  : 0.0030       #   └ เริ่ม trail เมื่อกำไร 0.3% ของราคา
+  trailing_distance_pct: 0.0020      #   └ ระยะ trail 0.2%
+  max_hold_hours      : 8            #   └ ถือเกิน 8 ชม. ปิดทิ้ง
 
-  be_after_rr         : 0.8     # กำไรถึง 0.8R → ขยับ SL เท่าทุน
-  partial_close_rr    : 1.0     # กำไรถึง 1.0R → ปิดบางส่วน
-  partial_close_pct   : 0.50    # ปิด 50% (ที่เหลือวิ่งต่อถึง TP 1.8R)
-  trailing_start_pct  : 0.0030  # กำไร ≥ 0.30% ของราคา → เริ่ม trailing
-  trailing_distance_pct: 0.0020 # trail SL ห่างราคา 0.20%
-  max_hold_hours      : 8       # ถือเกิน 8 ชม. → ปิดตามเวลา (กันไม้ค้าง)
-
-# Override ค่า global (risk/signal) เป็นรายตัว — ใช้ที่ main.py + risk_manager.py
-#   XAU 0.04: บัญชีเล็ก + lot floor 0.01 → ทอง 1 ไม้เสี่ยงขั้นต่ำ ~2.5%
-#   ตั้งต่ำกว่า ~0.025 ทองจะแทบไม่เทรดบนพอร์ตขนาดนี้
+# ────────────── เกตรายสกุล (ปุ่มคุมความเสี่ยงตัวจริง) ──────────────
+#  max_risk_pct = เพดาน "ความเสี่ยงจริงหลัง lot floor" — เกิน = บล็อกไม้นั้นทิ้ง
 symbol_settings:
-  XAUUSD:
-    min_confidence     : 0.52  # ค่าปกติ (ผล demo: เกต 0.47 แยกไม้ดี/แย่ได้ —
-                               #   ไม้ผ่าน +10.83, ไม้โดนตัด = แพ้จริงใน shadow)
-    max_session_losses : 3
-    risk_multiplier    : 0.50
-    cooldown_after_loss: 60
-    # 🔒 ทองปิดบน LIVE $100 โดยตั้งใจ: 0.01 lot (floor) เสี่ยงจริง $6.8-12.7/ไม้
-    #   = 7-13% ของพอร์ต → max_risk_pct 0.02 บล็อกทุกไม้อัตโนมัติ
-    # 🔓 เงื่อนไขปลด (เขียนล่วงหน้า กันใจร้อน): ทุน ≥ $600
-    #   (ไม้ทองแย่สุดที่เคยเห็น $12.7 จะ = ~2.1%) → ค่อยขยับเป็น 0.025
-    max_risk_pct       : 0.02
+  XAUUSD:   # 🔓 ทองเปิดตามคำสั่ง 2026-07-12 — เสี่ยงจริง ~7-8%/ไม้ ลดไม่ได้เพราะ lot floor
+    min_confidence     : 0.48        # ความมั่นใจขั้นต่ำเฉพาะทอง (แน่นกว่าคู่อื่น)
+    max_session_losses : 3           # แพ้ครบ 3 ไม้ในเซสชัน → หยุดทองถึงรอบรีเซ็ต
+    risk_multiplier    : 0.50        # ลดขนาดไม้ทองเหลือครึ่งของสูตรปกติ
+    cooldown_after_loss: 60          # แพ้ทองแล้วพักทอง 60 นาที
+    max_risk_pct       : 0.08        # เพดาน 8% — ปล่อยไม้ SL แคบ (~$7-8) บล็อกไม้ SL กว้าง ($10+)
   EURUSD:
-    min_confidence     : 0.42
-    risk_multiplier    : 1.00
-    max_session_losses : 3
-    cooldown_after_loss: 10
-    max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 บัญชี $100 FX 0.01 lot เสี่ยง ~2% (floor) รับได้
+    min_confidence     : 0.45        # ขั้นต่ำมาตรฐาน
+    risk_multiplier    : 1.00        # ขนาดไม้ตามสูตรปกติ
+    max_session_losses : 3           # แพ้ 3 ไม้/เซสชัน → พักคู่นี้
+    cooldown_after_loss: 10          # แพ้แล้วพัก 10 นาที
+    max_risk_pct       : 0.02        # เพดาน 2%/ไม้ — เกินนี้บล็อก
   GBPUSD:
-    min_confidence     : 0.42
+    min_confidence     : 0.48        # ความมั่นใจขั้นต่ำเฉพาะปอนด์ (แน่นกว่าคู่อื่น)
+    risk_multiplier    : 0.50        # ลดขนาดไม้ปอนด์เหลือครึ่งของสูตรปกติ
+    max_session_losses : 3           # แพ้ครบ 3 ไม้ในเซสชัน → หยุดปอนด์ถึงรอบรีเซ็ต
+    cooldown_after_loss: 60          # แพ้ปอนด์แล้วพักปอนด์ 60 นาที
+    max_risk_pct       : 0.08        # เพดาน 8% — ปล่อยไม้ SL แคบ (~$7-8) บล็อกไม้ SL กว้าง ($10+)
+  _default:                          # ค่าสำหรับ symbol ที่ไม่ได้ระบุข้างบน
+    min_confidence     : 0.45
     risk_multiplier    : 1.00
     max_session_losses : 3
     cooldown_after_loss: 10
-    max_risk_pct       : 0.02   # ✅ 1a: 0.015→0.02 เช่นเดียวกับ EUR
-  _default:                    # symbol ที่ไม่ได้ระบุด้านบน
-    min_confidence     : 0.42
-    risk_multiplier    : 1.00
-    max_session_losses : 3
-    cooldown_after_loss: 10
-    max_risk_pct       : 0.015
+    max_risk_pct       : 0.015       # เพดานเข้มกว่า (1.5%) เพราะเป็นสกุลที่ไม่ได้ตั้งใจเทรด
 
-# ══════════════════════════════════════════════════════════════════════
-# 7. TRAINING — พารามิเตอร์ตอน train โมเดล (scripts/retrain_all.py)
-# ══════════════════════════════════════════════════════════════════════
+# ────────────── ฝั่งเทรนโมเดล (ใช้ตอน retrain — ไม่มีผลกับ live) ──────────────
 training:
-  label_method  : "triple_barrier"
-  forward_bars  : 6       # มองไปข้างหน้า 6 แท่ง (90 นาที) ให้ราคาแตะ barrier
-  #   เดิม hardcode ในโค้ด: บน 2.0 / ล่าง 1.5 (ไม่สมมาตร) → ราคาแตะฝั่งล่าง
-  #   ค่านี้: สูงขึ้น = สัญญาณน้อยแต่ชัด (HOLD เยอะ) | ต่ำลง = สัญญาณถี่แต่ noise เพิ่ม
-  tb_atr_mult   : 1.2
-  min_return_pct: 0.0007  # ใช้กับ label_method simple/risk_adjusted (fallback ของ triple_barrier)
-  wf_gap_bars   : 96      # เว้นกี่แท่งระหว่าง train/test กัน look-ahead
-  xgb_params:
-    n_estimators    : 500
+  label_method  : "triple_barrier"   # วิธีติด label: บน/ล่าง/หมดเวลา
+  forward_bars  : 6                  # มองไปข้างหน้า 6 แท่ง (M15 = 1.5 ชม.)
+  tb_atr_mult   : 1.2                # ระยะ barrier = ±1.2×ATR (สมมาตร ตาม fix ก.ค.)
+  min_return_pct: 0.0007             # ขยับต่ำกว่า 0.07% นับเป็น "ไม่ไปไหน"
+  wf_gap_bars   : 96                 # เว้น gap 96 แท่งระหว่าง train/test กันข้อมูลรั่ว
+  xgb_params:                        # พารามิเตอร์ XGBoost
+    n_estimators    : 500            # จำนวนต้นไม้
+    learning_rate   : 0.03           # อัตราเรียนรู้ — ต่ำ = ช้าแต่นิ่ง
+    max_depth       : 6              # ความลึกต้นไม้ — ลึก = จับ pattern ซับซ้อนแต่เสี่ยง overfit
+    min_child_weight: 10             # กัน overfit: ต้องมีข้อมูลพอถึงจะแตกกิ่ง
+    subsample       : 0.8            # ใช้ข้อมูล 80% ต่อรอบ (สุ่ม)
+    colsample_bytree: 0.8            # ใช้ features 80% ต่อต้น (สุ่ม)
+  lgbm_params:                       # พารามิเตอร์ LightGBM
+    num_leaves      : 63             # จำนวนใบต่อต้น — เยอะ = ซับซ้อนขึ้น
     learning_rate   : 0.03
-    max_depth       : 6
-    min_child_weight: 10
-    subsample       : 0.8
-    colsample_bytree: 0.8
-  lgbm_params:
-    num_leaves      : 63
-    learning_rate   : 0.03
-    min_data_in_leaf: 50
+    min_data_in_leaf: 50             # กัน overfit เหมือน min_child_weight
     feature_fraction: 0.8
-    num_boost_round : 1000
+    num_boost_round : 1000           # จำนวนรอบ boosting สูงสุด
 
-# ══════════════════════════════════════════════════════════════════════
-# 8. SYSTEM — paths, logging, dashboard, แจ้งเตือน, API keys
-# ══════════════════════════════════════════════════════════════════════
-# โฟลเดอร์ที่บอทใช้อ่าน/เขียน
+# ────────────── ตำแหน่งไฟล์/โฟลเดอร์ ──────────────
 paths:
-  data_raw      : "data/raw"
-  data_processed: "data/processed"
-  models_saved  : "models/saved"
-  logs          : "logs"
-  db            : "db/trades.db"
-  reports       : "reports"
-  flags         : "flags"
+  data_raw      : "data/raw"         # ข้อมูลดิบจาก MT5/Yahoo
+  data_processed: "data/processed"   # ข้อมูลหลังทำ features
+  models_saved  : "models/saved"     # ไฟล์โมเดลที่เทรนแล้ว
+  logs          : "logs"             # log ระบบ
+  db            : "db/trades.db"     # ฐานข้อมูลไม้เทรด (SQLite)
+  reports       : "reports"          # รายงานสรุป
+  flags         : "flags"            # ไฟล์ flag คุมสถานะ (เช่น pause)
 
-# toggle log เสริม (level/rotation คุมที่ logging.yaml แยก ไม่ใช่ที่นี่)
+# ────────────── logging ──────────────
 logging:
-  shadow_trades : true    # true = บันทึกไม้ที่โดน gate ตัด → logs/shadow_trades.jsonl
-                          # (เก็บไว้วัด edge/หาบั๊ก gate โดยไม่เสียเงินจริง)
-# Streamlit dashboard
+  shadow_trades : true               # ⚠️ ต้องเปิดเสมอ: บันทึกไม้ที่โดนเกตตัด
+                                     #    = ข้อมูลหลักไว้วิเคราะห์ว่า filter ช่วยหรือขวาง
+
+# ────────────── dashboard local ──────────────
 dashboard:
-  port               : 8501
-  refresh_sec        : 30
+  port               : 8501          # เปิดดูที่ http://localhost:8501
+  refresh_sec        : 30            # รีเฟรชหน้าจอทุก 30 วิ
 
-# แจ้งเตือนผ่าน Telegram ตอนไหนบ้าง
+# ────────────── แจ้งเตือน Telegram ──────────────
 notifications:
-  notify_on:
-    order_open    : true
-    order_close   : true
-    order_failed  : true
-    daily_summary : true
-    daily_loss_hit: true
-  daily_summary_hour: 21   # ส่งสรุปประจำวันกี่โมง UTC
+  notify_on:                         # เหตุการณ์ที่ส่งแจ้งเตือน (true = ส่ง)
+    order_open    : true             # เปิดไม้
+    order_close   : true             # ปิดไม้
+    order_failed  : true             # ส่งคำสั่งไม่สำเร็จ
+    daily_summary : true             # สรุปประจำวัน
+    daily_loss_hit: true             # เบรกรายวันทำงาน
+  daily_summary_hour: 21             # ⚠️ ใช้ "เวลาเครื่อง" ไม่ใช่ UTC — ระวังตั้งผิด timezone
 
-# Finnhub free ไม่รองรับ economic calendar → fallback ForexFactory อัตโนมัติ (ไม่ใช่บั๊ก)
+# ────────────── API keys ──────────────
+#  ⚠️ ไม่ควรเก็บ key ในไฟล์นี้ — ย้ายไป .env แล้ว rotate key ใหม่
 api_keys:
   finnhub: "d8mu069r01qp7ubnsekgd8mu069r01qp7ubnsel0"

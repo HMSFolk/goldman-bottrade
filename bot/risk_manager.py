@@ -160,6 +160,13 @@ class CircuitBreakerState:
     triggered_at     : Optional[str]   = None
     auto_resume_at   : Optional[str]   = None
     consecutive_count: int             = 0
+    # ✅ FIX CB-DEADLOCK (2026-07-12): จำ "เวลา deal ล่าสุด ณ จุด trigger"
+    #   ไว้เป็นเส้นแบ่ง — หลัง resume นับเฉพาะ deal ที่ใหม่กว่านี้เท่านั้น
+    #   (เดิม: resume แล้วเจอ loss ชุดเดิมใน history → re-trigger ทันที วนตาย
+    #   เพราะ streak ไม่มีทางถูกล้างด้วยไม้ชนะระหว่างโดนบล็อก)
+    #   เทียบ label-time กับ label-time ของ MT5 → ไม่ต้องยุ่ง offset timezone
+    daily_baseline_deal_time : Optional[float] = None
+    consec_baseline_deal_time: Optional[float] = None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1063,7 +1070,11 @@ class RiskManager:
         if not cfg.get("enabled", True):
             return False, 0.0, 0.0, ""
 
-        daily_pnl = self._cb_get_pnl(days_back=1)
+        # ✅ FIX CB-DEADLOCK (2026-07-12): นับเฉพาะ deal หลัง baseline ล่าสุด
+        #   (loss ชุดที่เคย trigger ไปแล้ว ไม่ถูกนับซ้ำหลัง auto-resume)
+        daily_pnl = self._cb_get_pnl(
+            days_back=1, after_time=self._cb_state.daily_baseline_deal_time
+        )
         # ✅ FIX CB-SOURCE (2026-07-11): เดิม `== 0.0` + fetch acc.profit ใส่ตัวแปร
         #   แล้ว return ทิ้ง (dead code) และวันที่ "กำไร" จะหลุดไป abs() กลายเป็น
         #   ขาดทุนปลอม → เปลี่ยนเป็น >= 0.0 (ไม่ขาดทุน = ไม่มีอะไรต้องเช็ค)
@@ -1122,7 +1133,11 @@ class RiskManager:
             return False, 0.0, 0.0, ""
 
         max_count = int(cfg.get("count", 5))
-        count     = self._cb_get_consecutive_loss_count()
+        # ✅ FIX CB-DEADLOCK (2026-07-12): นับเฉพาะ deal ใหม่กว่า baseline —
+        #   streak ชุดที่เคย trigger ไปแล้วจะไม่หลอกให้ re-trigger หลัง resume
+        count = self._cb_get_consecutive_loss_count(
+            after_time=self._cb_state.consec_baseline_deal_time
+        )
         self._cb_state.consecutive_count = count
 
         if count >= max_count:
@@ -1188,6 +1203,21 @@ class RiskManager:
             cooldown_h = cfg_cb.get("consecutive_losses", {}).get("cooldown_hours", 4)
             auto_resume_at = (now + timedelta(hours=cooldown_h)).isoformat()
         # weekly + floating_dd → manual only
+
+        # ✅ FIX CB-DEADLOCK (2026-07-12): จำเวลา deal ล่าสุด ณ จุด trigger
+        #   เป็นเส้นแบ่ง — loss ชุดนี้ถูก "บริโภค" ไปแล้ว หลัง resume นับเฉพาะ
+        #   ของใหม่ (weekly/floating ไม่ใช้ baseline: weekly ต้องจำเต็ม 7 วัน
+        #   เพราะเป็นสัญญาณกฎถอย + manual resume โดยนิยาม)
+        if result.level == "daily":
+            self._cb_state.daily_baseline_deal_time = (
+                self._cb_newest_deal_time(1)
+                or self._cb_state.daily_baseline_deal_time
+            )
+        elif result.level == "consecutive":
+            self._cb_state.consec_baseline_deal_time = (
+                self._cb_newest_deal_time(7)
+                or self._cb_state.consec_baseline_deal_time
+            )
 
         self._cb_state.is_triggered   = True
         self._cb_state.trigger_level  = result.level
@@ -1299,24 +1329,39 @@ class RiskManager:
                 + float(getattr(d, "swap", 0.0) or 0.0)
                 + float(getattr(d, "commission", 0.0) or 0.0))
 
-    def _cb_get_pnl(self, days_back: int = 1) -> float:
+    def _cb_get_pnl(self, days_back: int = 1,
+                    after_time: Optional[float] = None) -> float:
         """ดึง P&L สุทธิย้อนหลัง N วันจาก MT5 deals (negative = loss)
 
+        after_time: นับเฉพาะ deal ที่ d.time > ค่านี้ (baseline กัน re-trigger)
         fail-safe: ดึงไม่ได้ → 0.0 (ไม่ trigger) — พฤติกรรมเดิมตอน DB หาย
         """
         deals = self._cb_get_closed_deals(days_back)
         if not deals:          # None (error) หรือ [] (ไม่มีดีล) → ไม่มีอะไรให้เช็ค
             return 0.0
+        if after_time is not None:
+            deals = [d for d in deals if d.time > after_time]
         return sum(self._deal_net(d) for d in deals)
 
-    def _cb_get_consecutive_loss_count(self) -> int:
+    def _cb_newest_deal_time(self, days_back: int = 7) -> Optional[float]:
+        """เวลา (label epoch) ของ closing deal ล่าสุด — ใช้ตั้ง baseline ตอน trigger"""
+        deals = self._cb_get_closed_deals(days_back)
+        if not deals:
+            return None
+        return float(max(d.time for d in deals))
+
+    def _cb_get_consecutive_loss_count(self,
+                                       after_time: Optional[float] = None) -> int:
         """นับ consecutive losses ล่าสุดจาก MT5 deals (หยุดเมื่อเจอ deal กำไร)
 
+        after_time: นับเฉพาะ deal ที่ใหม่กว่า baseline (กัน streak เก่าหลอกซ้ำ)
         มองย้อนหลัง 7 วัน (เกินพอสำหรับ count limit ระดับ 5-10 ไม้)
         """
         deals = self._cb_get_closed_deals(days_back=7)
         if not deals:
             return 0
+        if after_time is not None:
+            deals = [d for d in deals if d.time > after_time]
         count = 0
         for d in reversed(deals):            # ใหม่ → เก่า
             if self._deal_net(d) < 0:
