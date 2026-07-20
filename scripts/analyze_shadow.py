@@ -86,12 +86,29 @@ def _simulate(rec, bars: pd.DataFrame, offset_h: int, max_bars: int):
     คืน (outcome, r_multiple): outcome ∈ {win, loss, ambiguous, open, no_data}
     """
     sig_time = rec["ts"] + timedelta(hours=offset_h)   # แปลงเป็น "เวลาป้าย" ของ parquet
+
+    # ✅ FIX ALIGN-GUARD (2026-07-20): ผลรัน 2 รอบให้ outcome ตรงข้ามกัน
+    #   (แพ้→ชนะ ซึ่งเป็นไปไม่ได้) เพราะป้ายเวลา parquet เลื่อนได้ตามเส้นทาง
+    #   update แต่ simulate เดิมจับคู่แท่งแบบเชื่อป้าย 100% ไม่เช็คอะไรเลย
+    #   ตอนนี้ตรวจ 2 ชั้นก่อนเดินแท่ง:
+    #   (1) สัญญาณต้องอยู่ในช่วงข้อมูล (ไม่หลุดหน้าต่าง 499 แท่ง)
+    #   (2) ANCHOR: ราคา entry ต้องอยู่ในช่วง low-high (±0.15%) ของแท่ง
+    #       ณ เวลาสัญญาณ — ถ้าไม่อยู่ = ป้ายเวลาเพี้ยน → 'misaligned'
+    #       ห้ามเดา ห้ามรายงานผล
+    if sig_time <= bars.index[0]:
+        return "no_data", 0.0            # หลุดหน้าต่างข้อมูล
+    entry = float(rec["price"])
+    pos = bars.index.searchsorted(sig_time)
+    anchor = bars.iloc[max(pos - 1, 0)]  # แท่งที่ครอบเวลาสัญญาณ
+    tol = entry * 0.0015                 # เผื่อ spread/ขอบแท่ง
+    if not (float(anchor["low"]) - tol <= entry <= float(anchor["high"]) + tol):
+        return "misaligned", 0.0
+
     fwd = bars[bars.index > sig_time]
     if fwd.empty:
         return "no_data", 0.0
     fwd = fwd.iloc[:max_bars]
 
-    entry = float(rec["price"])
     rr    = float(rec["tp_dist"]) / float(rec["sl_dist"])
     if rec["direction"] == "BUY":
         tp, sl = entry + rec["tp_dist"], entry - rec["sl_dist"]
@@ -173,6 +190,11 @@ def main(max_bars: int = 96, offset_override: int | None = None):
             continue
         o, r = _simulate(rec, bars_cache[sym], offset_cache[sym], max_bars)
         outcomes.append(o); rs.append(r)
+    n_mis = outcomes.count("misaligned")
+    if n_mis:
+        print(f"  ⚠️ {n_mis}/{len(outcomes)} สัญญาณ MISALIGNED — ป้ายเวลา parquet "
+              f"ไม่ตรงราคาสัญญาณ (ไฟล์ถูกเขียนคนละ convention?) — "
+              f"แถวพวกนี้ถูกตัดออกจากทุกสถิติ ห้ามตีความแทนกัน")
 
     df["outcome"], df["r"] = outcomes, rs
     df["conf_bucket"] = pd.cut(

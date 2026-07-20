@@ -1,690 +1,487 @@
 {
-  "fetched_utc": "2026-07-13T19:36:53.909774+00:00",
+  "fetched_utc": "2026-07-20T08:29:15.679550+00:00",
   "events": [
     {
-      "title": "BusinessNZ Services Index",
-      "country": "NZD",
-      "impact": "low",
-      "time_utc": "2026-07-12T22:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Bowman Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-13T09:25:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Waller Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-13T16:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Federal Budget Balance",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-13T17:59:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "MPC Member Pill Speaks",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-13T18:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "NZIER Business Confidence",
-      "country": "NZD",
-      "impact": "low",
-      "time_utc": "2026-07-13T22:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Visitor Arrivals m/m",
-      "country": "NZD",
-      "impact": "low",
-      "time_utc": "2026-07-13T22:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BRC Retail Sales Monitor y/y",
-      "country": "GBP",
-      "impact": "high",
-      "time_utc": "2026-07-13T23:01:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Westpac Consumer Sentiment",
-      "country": "AUD",
-      "impact": "low",
-      "time_utc": "2026-07-14T00:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "NAB Business Confidence",
-      "country": "AUD",
-      "impact": "low",
-      "time_utc": "2026-07-14T01:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
       "title": "Trade Balance",
-      "country": "CNY",
+      "country": "NZD",
       "impact": "low",
-      "time_utc": "2026-07-14T02:03:00+00:00",
+      "time_utc": "2026-07-19T22:45:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "USD-Denominated Trade Balance",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-14T02:04:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Revised Industrial Production m/m",
+      "title": "Bank Holiday",
       "country": "JPY",
-      "impact": "low",
-      "time_utc": "2026-07-14T04:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "German WPI m/m",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-14T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "French Bank Holiday",
-      "country": "EUR",
       "impact": "holiday",
-      "time_utc": "2026-07-14T06:01:00+00:00",
+      "time_utc": "2026-07-19T23:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "PPI m/m",
-      "country": "CHF",
-      "impact": "high",
-      "time_utc": "2026-07-14T06:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "M2 Money Supply y/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-14T08:03:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "New Loans",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-14T08:03:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BOE Gov Bailey Speaks",
+      "title": "Rightmove HPI m/m",
       "country": "GBP",
-      "impact": "high",
-      "time_utc": "2026-07-14T08:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "NFIB Small Business Index",
-      "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-14T10:00:00+00:00",
+      "time_utc": "2026-07-19T23:01:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "ADP Weekly Employment Change",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-14T12:15:00+00:00",
+      "title": "1-y Loan Prime Rate",
+      "country": "CNY",
+      "impact": "low",
+      "time_utc": "2026-07-20T01:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Core CPI m/m",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-14T12:30:00+00:00",
+      "title": "5-y Loan Prime Rate",
+      "country": "CNY",
+      "impact": "low",
+      "time_utc": "2026-07-20T01:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Core CPI y/y",
-      "country": "USD",
+      "title": "German PPI m/m",
+      "country": "EUR",
       "impact": "high",
-      "time_utc": "2026-07-14T12:30:00+00:00",
+      "time_utc": "2026-07-20T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "CPI m/m",
-      "country": "USD",
+      "country": "CAD",
       "impact": "high",
-      "time_utc": "2026-07-14T12:30:00+00:00",
+      "time_utc": "2026-07-20T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "CPI y/y",
-      "country": "USD",
+      "title": "Median CPI y/y",
+      "country": "CAD",
       "impact": "high",
-      "time_utc": "2026-07-14T12:30:00+00:00",
+      "time_utc": "2026-07-20T12:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Trimmed CPI y/y",
+      "country": "CAD",
+      "impact": "high",
+      "time_utc": "2026-07-20T12:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Common CPI y/y",
+      "country": "CAD",
+      "impact": "high",
+      "time_utc": "2026-07-20T12:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Core CPI m/m",
+      "country": "CAD",
+      "impact": "high",
+      "time_utc": "2026-07-20T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "CB Leading Index m/m",
-      "country": "GBP",
+      "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-14T13:30:00+00:00",
+      "time_utc": "2026-07-20T14:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Fed Chairman Warsh Testifies",
-      "country": "USD",
+      "title": "CPI q/q",
+      "country": "NZD",
       "impact": "high",
-      "time_utc": "2026-07-14T14:00:00+00:00",
+      "time_utc": "2026-07-20T22:45:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "CB Leading Index m/m",
-      "country": "AUD",
-      "impact": "low",
-      "time_utc": "2026-07-14T14:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Barr Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-14T16:40:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Goolsbee Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-14T17:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Bowman Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-14T18:55:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BOE Gov Bailey Speaks",
+      "title": "Claimant Count Change",
       "country": "GBP",
       "impact": "high",
-      "time_utc": "2026-07-14T20:00:00+00:00",
+      "time_utc": "2026-07-21T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "TIC Long-Term Purchases",
-      "country": "USD",
+      "title": "Average Earnings Index 3m/y",
+      "country": "GBP",
+      "impact": "medium",
+      "time_utc": "2026-07-21T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Public Sector Net Borrowing",
+      "country": "GBP",
       "impact": "low",
-      "time_utc": "2026-07-14T20:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "API Weekly Statistical Bulletin",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-14T20:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Core Machinery Orders m/m",
-      "country": "JPY",
-      "impact": "low",
-      "time_utc": "2026-07-14T23:50:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "New Home Prices m/m",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-15T01:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Fixed Asset Investment ytd/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-15T02:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "GDP q/y",
-      "country": "CNY",
-      "impact": "high",
-      "time_utc": "2026-07-15T02:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Industrial Production y/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-15T02:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "NBS Press Conference",
-      "country": "CNY",
-      "impact": "high",
-      "time_utc": "2026-07-15T02:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Retail Sales y/y",
-      "country": "CNY",
-      "impact": "high",
-      "time_utc": "2026-07-15T02:00:00+00:00",
+      "time_utc": "2026-07-21T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Unemployment Rate",
-      "country": "CNY",
-      "impact": "high",
-      "time_utc": "2026-07-15T02:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Tertiary Industry Activity m/m",
-      "country": "JPY",
-      "impact": "low",
-      "time_utc": "2026-07-15T04:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Industrial Production m/m",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-15T09:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "German 30-y Bond Auction",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-15T09:34:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "MPC Member Pill Speaks",
       "country": "GBP",
+      "impact": "high",
+      "time_utc": "2026-07-21T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Foreign Direct Investment ytd/y",
+      "country": "CNY",
       "impact": "low",
-      "time_utc": "2026-07-15T10:30:00+00:00",
+      "time_utc": "2026-07-21T06:02:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Manufacturing Sales m/m",
-      "country": "CAD",
+      "title": "ZEW Economic Sentiment",
+      "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-07-15T12:30:00+00:00",
+      "time_utc": "2026-07-21T09:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Wholesale Sales m/m",
-      "country": "CAD",
+      "title": "German ZEW Economic Sentiment",
+      "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-07-15T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Core PPI m/m",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-15T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "PPI m/m",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-15T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Empire State Manufacturing Index",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-15T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Williams Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-15T12:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BOC Monetary Policy Report",
-      "country": "CAD",
-      "impact": "high",
-      "time_utc": "2026-07-15T13:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BOC Rate Statement",
-      "country": "CAD",
-      "impact": "high",
-      "time_utc": "2026-07-15T13:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Overnight Rate",
-      "country": "CAD",
-      "impact": "high",
-      "time_utc": "2026-07-15T13:45:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Fed Chairman Warsh Testifies",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-15T14:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Crude Oil Inventories",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-15T14:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "BOC Press Conference",
-      "country": "CAD",
-      "impact": "high",
-      "time_utc": "2026-07-15T14:45:00+00:00",
+      "time_utc": "2026-07-21T09:00:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "German Buba President Nagel Speaks",
       "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-07-15T16:00:00+00:00",
+      "time_utc": "2026-07-21T11:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "FOMC Member Cook Speaks",
+      "title": "ADP Weekly Employment Change",
       "country": "USD",
       "impact": "high",
-      "time_utc": "2026-07-15T17:00:00+00:00",
+      "time_utc": "2026-07-21T12:15:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Beige Book",
+      "title": "GDT Price Index",
+      "country": "NZD",
+      "impact": "low",
+      "time_utc": "2026-07-21T14:50:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "API Weekly Statistical Bulletin",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-15T18:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Musalem Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-15T22:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "MI Inflation Expectations",
-      "country": "AUD",
-      "impact": "high",
-      "time_utc": "2026-07-16T01:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "GDP m/m",
-      "country": "GBP",
-      "impact": "high",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Construction Output m/m",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Goods Trade Balance",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Index of Services 3m/3m",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Industrial Production m/m",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Manufacturing Production m/m",
-      "country": "GBP",
-      "impact": "low",
-      "time_utc": "2026-07-16T06:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Summary of Monetary Policy Discussions",
-      "country": "CHF",
-      "impact": "low",
-      "time_utc": "2026-07-16T07:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Italian Trade Balance",
-      "country": "EUR",
-      "impact": "low",
-      "time_utc": "2026-07-16T09:00:00+00:00",
+      "time_utc": "2026-07-21T20:30:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Trade Balance",
-      "country": "EUR",
+      "country": "JPY",
       "impact": "low",
-      "time_utc": "2026-07-16T09:00:00+00:00",
+      "time_utc": "2026-07-21T23:50:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "10-y Bond Auction",
+      "title": "MI Leading Index m/m",
+      "country": "AUD",
+      "impact": "low",
+      "time_utc": "2026-07-22T00:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Credit Card Spending y/y",
+      "country": "NZD",
+      "impact": "low",
+      "time_utc": "2026-07-22T03:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "CPI y/y",
+      "country": "GBP",
+      "impact": "high",
+      "time_utc": "2026-07-22T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Core CPI y/y",
+      "country": "GBP",
+      "impact": "high",
+      "time_utc": "2026-07-22T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "PPI Input m/m",
+      "country": "GBP",
+      "impact": "high",
+      "time_utc": "2026-07-22T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "PPI Output m/m",
+      "country": "GBP",
+      "impact": "high",
+      "time_utc": "2026-07-22T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "RPI y/y",
       "country": "GBP",
       "impact": "low",
-      "time_utc": "2026-07-16T09:33:00+00:00",
+      "time_utc": "2026-07-22T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Housing Starts",
-      "country": "CAD",
+      "title": "HPI y/y",
+      "country": "GBP",
       "impact": "low",
-      "time_utc": "2026-07-16T12:15:00+00:00",
+      "time_utc": "2026-07-22T08:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Crude Oil Inventories",
+      "country": "USD",
+      "impact": "low",
+      "time_utc": "2026-07-22T14:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Employment Change",
+      "country": "AUD",
+      "impact": "high",
+      "time_utc": "2026-07-23T01:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Unemployment Rate",
+      "country": "AUD",
+      "impact": "high",
+      "time_utc": "2026-07-23T01:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "CBI Industrial Order Expectations",
+      "country": "GBP",
+      "impact": "low",
+      "time_utc": "2026-07-23T10:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Main Refinancing Rate",
+      "country": "EUR",
+      "impact": "high",
+      "time_utc": "2026-07-23T12:15:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Monetary Policy Statement",
+      "country": "EUR",
+      "impact": "high",
+      "time_utc": "2026-07-23T12:15:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Core Retail Sales m/m",
-      "country": "USD",
+      "country": "CAD",
       "impact": "high",
-      "time_utc": "2026-07-16T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Philly Fed Manufacturing Index",
-      "country": "USD",
-      "impact": "medium",
-      "time_utc": "2026-07-16T12:30:00+00:00",
+      "time_utc": "2026-07-23T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Retail Sales m/m",
-      "country": "USD",
+      "country": "CAD",
       "impact": "high",
-      "time_utc": "2026-07-16T12:30:00+00:00",
+      "time_utc": "2026-07-23T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Unemployment Claims",
       "country": "USD",
       "impact": "high",
-      "time_utc": "2026-07-16T12:30:00+00:00",
+      "time_utc": "2026-07-23T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Business Inventories m/m",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-16T14:00:00+00:00",
+      "title": "ECB Press Conference",
+      "country": "EUR",
+      "impact": "high",
+      "time_utc": "2026-07-23T12:45:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "NAHB Housing Market Index",
-      "country": "USD",
+      "title": "CB Leading Index m/m",
+      "country": "CNY",
       "impact": "low",
-      "time_utc": "2026-07-16T14:00:00+00:00",
+      "time_utc": "2026-07-23T13:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Pending Home Sales m/m",
-      "country": "USD",
+      "title": "Consumer Confidence",
+      "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-07-16T14:00:00+00:00",
+      "time_utc": "2026-07-23T14:00:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Natural Gas Storage",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-16T14:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Logan Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-16T16:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "FOMC Member Schmid Speaks",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-16T17:25:00+00:00",
+      "time_utc": "2026-07-23T14:30:00+00:00",
       "source": "forexfactory"
     },
     {
       "title": "Treasury Currency Report",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-16T20:00:00+00:00",
+      "time_utc": "2026-07-23T20:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "FPI m/m",
-      "country": "NZD",
+      "title": "Flash Manufacturing PMI",
+      "country": "AUD",
       "impact": "low",
-      "time_utc": "2026-07-16T22:45:00+00:00",
+      "time_utc": "2026-07-23T23:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "FOMC Member Jefferson Speaks",
-      "country": "USD",
+      "title": "Flash Services PMI",
+      "country": "AUD",
+      "impact": "low",
+      "time_utc": "2026-07-23T23:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "GfK Consumer Confidence",
+      "country": "GBP",
+      "impact": "low",
+      "time_utc": "2026-07-23T23:01:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "National Core CPI y/y",
+      "country": "JPY",
       "impact": "high",
-      "time_utc": "2026-07-16T23:00:00+00:00",
+      "time_utc": "2026-07-23T23:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Current Account",
+      "title": "Flash Manufacturing PMI",
+      "country": "JPY",
+      "impact": "low",
+      "time_utc": "2026-07-24T00:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "German GfK Consumer Climate",
       "country": "EUR",
       "impact": "low",
-      "time_utc": "2026-07-17T08:00:00+00:00",
+      "time_utc": "2026-07-24T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Final Core CPI y/y",
-      "country": "EUR",
+      "title": "Retail Sales m/m",
+      "country": "GBP",
       "impact": "high",
-      "time_utc": "2026-07-17T09:00:00+00:00",
+      "time_utc": "2026-07-24T06:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Final CPI y/y",
+      "title": "French Flash Manufacturing PMI",
       "country": "EUR",
-      "impact": "high",
-      "time_utc": "2026-07-17T09:00:00+00:00",
+      "impact": "medium",
+      "time_utc": "2026-07-24T07:15:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Foreign Securities Purchases",
+      "title": "French Flash Services PMI",
+      "country": "EUR",
+      "impact": "medium",
+      "time_utc": "2026-07-24T07:15:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "German Flash Manufacturing PMI",
+      "country": "EUR",
+      "impact": "medium",
+      "time_utc": "2026-07-24T07:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "German Flash Services PMI",
+      "country": "EUR",
+      "impact": "medium",
+      "time_utc": "2026-07-24T07:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Flash Manufacturing PMI",
+      "country": "EUR",
+      "impact": "low",
+      "time_utc": "2026-07-24T08:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Flash Services PMI",
+      "country": "EUR",
+      "impact": "low",
+      "time_utc": "2026-07-24T08:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Flash Manufacturing PMI",
+      "country": "GBP",
+      "impact": "medium",
+      "time_utc": "2026-07-24T08:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Flash Services PMI",
+      "country": "GBP",
+      "impact": "medium",
+      "time_utc": "2026-07-24T08:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "IPPI m/m",
+      "country": "CAD",
+      "impact": "high",
+      "time_utc": "2026-07-24T12:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "NHPI m/m",
       "country": "CAD",
       "impact": "low",
-      "time_utc": "2026-07-17T12:30:00+00:00",
+      "time_utc": "2026-07-24T12:30:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Building Permits",
+      "title": "RMPI m/m",
+      "country": "CAD",
+      "impact": "low",
+      "time_utc": "2026-07-24T12:30:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Belgian NBB Business Climate",
+      "country": "EUR",
+      "impact": "low",
+      "time_utc": "2026-07-24T13:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Flash Manufacturing PMI",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-17T12:30:00+00:00",
+      "time_utc": "2026-07-24T13:45:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Housing Starts",
+      "title": "Flash Services PMI",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-17T12:30:00+00:00",
+      "time_utc": "2026-07-24T13:45:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "Import Prices m/m",
+      "title": "New Home Sales",
       "country": "USD",
       "impact": "low",
-      "time_utc": "2026-07-17T12:30:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Capacity Utilization Rate",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-17T13:15:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Industrial Production m/m",
-      "country": "USD",
-      "impact": "low",
-      "time_utc": "2026-07-17T13:15:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Prelim UoM Consumer Sentiment",
-      "country": "USD",
-      "impact": "medium",
-      "time_utc": "2026-07-17T14:00:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "Prelim UoM Inflation Expectations",
-      "country": "USD",
-      "impact": "high",
-      "time_utc": "2026-07-17T14:00:00+00:00",
+      "time_utc": "2026-07-24T14:00:00+00:00",
       "source": "forexfactory"
     }
   ]
