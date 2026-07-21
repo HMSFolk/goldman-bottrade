@@ -351,7 +351,11 @@ def run_tick(symbol: str):
         if STATE.regime_detector is not None:
             try:
                 regime = STATE.regime_detector.detect_from_mt5(
-                    symbol=symbol, timeframe="H4", bars=300
+                    # ✅ FIX EMA-WARMUP (2026-07-21): 300→520 — regime ใช้
+                    #   ema_trend 200 ซึ่งต้องการ ~460 แท่งกว่า EMA จะนิ่ง
+                    #   ตรงกับค่าที่คำนวณบนประวัติเต็ม (300 แท่ง = มวล EMA
+                    #   หายไป ~14% → ป้าย regime เพี้ยนโดยเฉพาะใกล้จุดตัด)
+                    symbol=symbol, timeframe="H4", bars=520
                     # ⚠️ NOTE: hardcode ใช้ XAU เป็น proxy เช็ค regime
 
                 )
@@ -378,14 +382,20 @@ def run_tick(symbol: str):
             log.error(f"Unknown timeframe: {primary_tf}")
             return
 
-        df_primary = STATE.client.get_ohlcv(symbol, primary_tf, n_bars=300)
+        # ✅ FIX EMA-WARMUP (2026-07-21): 300→520 — trend features มี ema_200
+        #   (และลูกๆ: golden cross, ema_50_above_200) EMA span 200 ต้องการ
+        #   ~460 แถวกว่าค่าจะตรงกับตอนเทรน (เทรนคำนวณบนประวัติเต็ม)
+        #   ที่ 300 แถว live เห็นค่าเพี้ยน ~14% = โมเดลอ่านสนามคนละใบกับห้องเรียน
+        df_primary = STATE.client.get_ohlcv(symbol, primary_tf, n_bars=520)
 
         # โหลด HTF สำหรับ multi-timeframe
         htf_dfs = {}
         for htf_name in CFG['symbols']['htf_timeframes']:
             if htf_name in valid_tfs:
                 htf_dfs[htf_name] = STATE.client.get_ohlcv(
-                    symbol, htf_name, n_bars=200
+                    # ✅ FIX EMA-WARMUP (2026-07-21): 200→520 เหตุผลเดียวกับ
+                    #   df_primary — h1_/h4_ features ก็มี EMA ยาว
+                    symbol, htf_name, n_bars=520
                 )
             else:
                 log.warning(f"Unknown HTF timeframe skipped: {htf_name}")

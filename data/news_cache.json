@@ -1,5 +1,5 @@
 {
-  "fetched_utc": "2026-07-20T08:29:15.679550+00:00",
+  "fetched_utc": "2026-07-21T20:28:32.957894+00:00",
   "events": [
     {
       "title": "Trade Balance",
@@ -121,21 +121,14 @@
       "source": "forexfactory"
     },
     {
-      "title": "Foreign Direct Investment ytd/y",
-      "country": "CNY",
-      "impact": "low",
-      "time_utc": "2026-07-21T06:02:00+00:00",
-      "source": "forexfactory"
-    },
-    {
-      "title": "ZEW Economic Sentiment",
+      "title": "German ZEW Economic Sentiment",
       "country": "EUR",
       "impact": "low",
       "time_utc": "2026-07-21T09:00:00+00:00",
       "source": "forexfactory"
     },
     {
-      "title": "German ZEW Economic Sentiment",
+      "title": "ZEW Economic Sentiment",
       "country": "EUR",
       "impact": "low",
       "time_utc": "2026-07-21T09:00:00+00:00",
@@ -159,7 +152,7 @@
       "title": "GDT Price Index",
       "country": "NZD",
       "impact": "low",
-      "time_utc": "2026-07-21T14:50:00+00:00",
+      "time_utc": "2026-07-21T15:16:00+00:00",
       "source": "forexfactory"
     },
     {
@@ -223,6 +216,13 @@
       "country": "GBP",
       "impact": "low",
       "time_utc": "2026-07-22T06:00:00+00:00",
+      "source": "forexfactory"
+    },
+    {
+      "title": "Foreign Direct Investment ytd/y",
+      "country": "CNY",
+      "impact": "low",
+      "time_utc": "2026-07-22T06:02:00+00:00",
       "source": "forexfactory"
     },
     {
